@@ -4,11 +4,12 @@
  * the cleanup.
  */
 import useGraphStore from '../../../store/graphStore.js';
+import useCanvasUIStore from '../../../store/canvasUIStore.js';
 
 /** Attach the shell shortcut listener; returns its cleanup. */
 export function listenForShellShortcuts(ctx) {
   const {
-    setHeaderSearchVisible, setNewWebPrompt, handleToggleLeftPanel, handleToggleRightPanel, storeActions,
+    setNewWebPrompt, handleToggleLeftPanel, handleToggleRightPanel, storeActions,
   } = ctx;
   /**
    * Global keydown handler registered on `document` (not the SVG element).
@@ -17,7 +18,7 @@ export function listenForShellShortcuts(ctx) {
    * available while editing node descriptions. Text-input-aware: destructive
    * shortcuts (Delete, Backspace) are suppressed when the active element is
    * editable. Handled keys:
-   * - **Cmd/Ctrl+F**: opens the graph search header.
+   * - **Cmd/Ctrl+F**: opens search, on the web in front of you.
    * - **Escape**: closes search, dismisses PieMenu, clears edge-creation state.
    * - **Delete / Backspace**: deletes the selected node(s) or edge when canvas has focus.
    * - **Cmd/Ctrl+Z**: undo; **Cmd/Ctrl+Shift+Z** or **Cmd/Ctrl+Y**: redo.
@@ -26,10 +27,10 @@ export function listenForShellShortcuts(ctx) {
    * @param {KeyboardEvent} e - The keydown event.
    */
   const handleGlobalKeyDown = (e) => {
-    // Check for Cmd+F (Mac) or Ctrl+F (Windows/Linux) to open Graph Search
+    // Check for Cmd+F (Mac) or Ctrl+F (Windows/Linux) to open search
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
       e.preventDefault();
-      setHeaderSearchVisible(true);
+      useCanvasUIStore.getState().setSearchScope('this-web');
       return;
     }
 

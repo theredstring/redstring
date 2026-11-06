@@ -42,6 +42,13 @@ export const nudgeReadOnlyUniverse = () => {
   useReadOnlyUniverse.setState((state) => ({ nudge: state.nudge + 1 }));
 };
 
+// What a person does to make an edit. A pan or a wheel isn't one, and neither is
+// what the canvas writes for itself on a timer or a frame: those have no event.
+const ACTS = new Set(['click', 'dblclick', 'contextmenu', 'keydown', 'pointerup', 'mouseup', 'touchend', 'submit', 'change', 'input', 'drop', 'paste', 'cut']);
+
+/** Whether this write is happening inside something the person just did. */
+export const isInsidePersonsAct = () => ACTS.has(globalThis.event?.type);
+
 export const setReadOnlyFailure = (failure) => useReadOnlyUniverse.setState({ failure });
 
 /**

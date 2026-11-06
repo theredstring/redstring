@@ -6,6 +6,7 @@ import saveCoordinator from './services/SaveCoordinator';
 import { resolveSaveStatus } from './utils/saveStatus.js';
 import { useViewportBounds } from './hooks/useViewportBounds';
 import useGraphStore from './store/graphStore.js';
+import useReadOnlyUniverse, { selectReadOnlyOpen } from './store/readOnlyUniverse.js';
 import { useTheme } from './hooks/useTheme.js';
 import { persistentAuth } from './services/persistentAuth.js';
 import { vlog } from './utils/verboseLog.js';
@@ -22,6 +23,10 @@ const STALLED_DIRTY_MS = 6000;
 // How long "Syncing..." stays up after someone else's changes land. The
 // indicator only says that; what changed is for the canvas to show.
 const REMOTE_NOTICE_MS = 1500;
+
+// A refused edit in a read-only universe: "Read Only", quickly in, up for about
+// a second, then out at the indicator's usual pace.
+const READ_ONLY_NOTICE_MS = 1200;
 
 const SaveStatusDisplay = ({ hidden = false }) => {
   // `null` means "nothing worth saying" (mid-drag, before anything is written).
@@ -51,6 +56,21 @@ const SaveStatusDisplay = ({ hidden = false }) => {
   }, []);
   // The notice gives way to anything the person has to act on.
   const showNotice = remoteNotice && !isCTA && statusText !== 'Not saved';
+
+  // A read-only universe has nothing to save, so all this says there is the
+  // answer to an edit, when there is one.
+  const readOnly = useReadOnlyUniverse(selectReadOnlyOpen);
+  const refusedEdits = useReadOnlyUniverse((state) => state.nudge);
+  const [readOnlyNotice, setReadOnlyNotice] = useState(false);
+  const refusalsAnswered = useRef(refusedEdits);
+  useEffect(() => {
+    if (refusedEdits === refusalsAnswered.current) return undefined;
+    refusalsAnswered.current = refusedEdits;
+    setReadOnlyNotice(true);
+    const timer = setTimeout(() => setReadOnlyNotice(false), READ_ONLY_NOTICE_MS);
+    return () => clearTimeout(timer);
+  }, [refusedEdits]);
+  const shown = !hidden && (readOnly ? readOnlyNotice : (isVisible || showNotice));
 
   // Timestamp the coordinator first went dirty with no write in flight.
   const dirtySinceRef = useRef(0);
@@ -324,11 +344,11 @@ const SaveStatusDisplay = ({ hidden = false }) => {
 
         cursor: isCTA ? 'pointer' : 'default',
         textDecoration: 'none',
-        opacity: ((isVisible || showNotice) && !hidden) ? 1 : 0,
-        transition: 'opacity 1s ease',
-        pointerEvents: ((isVisible || showNotice) && !hidden) ? 'auto' : 'none'
+        opacity: shown ? 1 : 0,
+        transition: readOnly && shown ? 'opacity 0.2s ease' : 'opacity 1s ease',
+        pointerEvents: shown && !readOnly ? 'auto' : 'none'
       }}
-      title={showNotice ? undefined : (statusDetail || undefined)}
+      title={showNotice || readOnly ? undefined : (statusDetail || undefined)}
       onClick={handleClick}
       onMouseEnter={(e) => {
         if (!isCTA) return;
@@ -364,7 +384,7 @@ const SaveStatusDisplay = ({ hidden = false }) => {
         } catch { }
       }}
     >
-      {!showNotice && statusText === 'Save' && (
+      {!readOnly && !showNotice && statusText === 'Save' && (
         // The text's outline is eight text-shadows in the canvas colour; an
         // icon takes the same outline as chained drop-shadows, 1px at a time
         // so it grows 2px all round without gaps.
@@ -380,7 +400,7 @@ const SaveStatusDisplay = ({ hidden = false }) => {
           }}
         />
       )}
-      {showNotice ? 'Syncing...' : statusText}
+      {readOnly ? 'Read Only' : (showNotice ? 'Syncing...' : statusText)}
     </div>
   );
 };

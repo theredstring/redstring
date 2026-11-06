@@ -68,10 +68,11 @@ function WebChoice({ title, onChoose, children }) {
 /**
  * The Thing's Webs and the new-Web card, in the selector's grid box: as large
  * as the box's width allows. A single row is also kept to the box's height, so
- * it shows whole without scrolling. The header's New Web prompt shows it too
- * (hosts/SearchHosts.jsx).
+ * it shows whole without scrolling. The header's New Web prompt shows it too,
+ * and search, which only finds: there `newWeb` is off and `only` can narrow the
+ * Webs to those in a Set of graph ids (hosts/SearchHosts.jsx).
  */
-export function WebGrid({ prototype, onChoose }) {
+export function WebGrid({ prototype, onChoose, newWeb = true, only = null }) {
   const graphs = useGraphStore(s => s.graphs);
   useGraphStore(s => s.textSettings); // the cards' proportions follow it
   const ref = useRef(null);
@@ -92,9 +93,9 @@ export function WebGrid({ prototype, onChoose }) {
     return () => observer.disconnect();
   }, []);
 
-  const webs = websOf(prototype, graphs);
+  const webs = websOf(prototype, graphs).filter(({ graphId }) => !only || only.has(graphId));
   const color = prototype.color || NODE_DEFAULT_COLOR;
-  const count = webs.length + 1;
+  const count = webs.length + (newWeb ? 1 : 0);
   const columns = count < ONE_ROW_BELOW ? count : MAX_COLUMNS;
   const oneRow = count <= columns;
   let cardWidth = 0;
@@ -123,7 +124,7 @@ export function WebGrid({ prototype, onChoose }) {
           <DefinitionCard graphId={graphId} nodeName={prototype.name} nodeColor={color} titleDrop={TITLE_DROP} />
         </WebChoice>
       ))}
-      {box && (
+      {box && newWeb && (
         <WebChoice title="New Web" onChoose={() => onChoose(prototype.definitionGraphIds?.length || 0)}>
           <WebCard nodes={[]} edges={[]} title={prototype.name} sizingName={prototype.name} color={color} newWeb titleDrop={TITLE_DROP} />
         </WebChoice>

@@ -1,6 +1,6 @@
-// F23: the header's New Thing prompt and component search act on the store and
-// the canvas. Since P2.06d they render from SearchHosts, and the search's
-// camera move is the navigateToPrototypeInstances canvas command.
+// F23: the header's New Thing prompt and search act on the store and the
+// canvas. Since P2.06d they render from SearchHosts, and This Web's camera move
+// is the navigateToPrototypeInstances canvas command.
 import { test, expect, openFixture, storeEval, camera, waitForCameraSettled } from './helpers.js';
 
 const openUI = (page, setter, value) => page.evaluate(async ([s, v]) => {
@@ -21,14 +21,14 @@ test('F23 New Thing: naming it creates a web defined by a new Thing and opens it
   await expect(input).toHaveCount(0);
 });
 
-test('F23b component search: picking a Thing opens its tab and flies the camera to it', async ({ page }) => {
+test('F23b search this web: picking a Thing opens its tab and flies the camera to it', async ({ page }) => {
   await openFixture(page, 'small');
   const { name } = await storeEval(page, (st) => ({ name: st.nodePrototypes.get('p-gamma')?.name }));
   test.skip(!name, 'fixture has no p-gamma');
   await waitForCameraSettled(page);
   const cam0 = await camera(page);
 
-  await openUI(page, 'setHeaderSearchVisible', true);
+  await openUI(page, 'setSearchScope', 'this-web');
   const card = page.locator('.unified-selector-card', { hasText: name }).first();
   await expect(card).toBeVisible();
   await card.click();
@@ -38,4 +38,82 @@ test('F23b component search: picking a Thing opens its tab and flies the camera 
     const c = await camera(page);
     return Math.hypot(c.pan.x - cam0.pan.x, c.pan.y - cam0.pan.y) + Math.abs(c.zoom - cam0.zoom);
   }, { timeout: 8_000 }).toBeGreaterThan(1);
+});
+
+test('F23c search moves between where it looks, keeping what is typed', async ({ page }) => {
+  await openFixture(page, 'small');
+  const name = await storeEval(page, (st) => st.nodePrototypes.get('p-gamma')?.name);
+  test.skip(!name, 'fixture has no p-gamma');
+  await storeEval(page, (st) => { st.closeGraph(st.activeGraphId); });
+
+  await openUI(page, 'setSearchScope', 'open-webs');
+  const input = page.locator('input.unified-selector-control').first();
+  await input.fill(name);
+  const title = page.locator('.unified-selector-title-menu');
+  await expect(title).toHaveText('Search Open Webs');
+  await title.click();
+  await page.locator('.context-menu-item', { hasText: 'Search Everything' }).click();
+
+  await expect(title).toHaveText('Search Everything');
+  await expect(input).toHaveValue(name);
+  await expect(page.locator('.unified-selector-card', { hasText: name }).first()).toBeVisible();
+});
+
+test('F23d search never makes a Web: one opens, none opens the tab, several are chosen from', async ({ page }) => {
+  await openFixture(page, 'small');
+  const ids = await storeEval(page, (st) => {
+    return { size: st.graphs.size, thing: [...st.nodePrototypes.values()].find(p => !p.definitionGraphIds?.length && p.id !== 'base-thing-prototype' && p.name)?.id };
+  });
+  test.skip(!ids.thing, 'fixture has no Thing without a Web');
+
+  await openUI(page, 'setSearchScope', 'everything');
+  const name = await storeEval(page, (st, id) => st.nodePrototypes.get(id).name, ids.thing);
+  await page.locator('.unified-selector-card', { hasText: name }).first().click();
+  await expect.poll(() => storeEval(page, (st) => st.rightPanelTabs.find((t) => t.isActive)?.nodeId)).toBe(ids.thing);
+  expect(await storeEval(page, (st) => st.graphs.size)).toBe(ids.size);
+
+  // Two Webs: their cards, with no New Web among them, and the second opens.
+  const webs = await storeEval(page, (st, id) => [
+    st.createAndAssignGraphDefinitionWithoutActivation(id),
+    st.createAndAssignGraphDefinitionWithoutActivation(id),
+  ], ids.thing);
+  await openUI(page, 'setSearchScope', 'everything');
+  await page.locator('.unified-selector-card', { hasText: name }).first().click();
+  await expect(page.getByText('Choose a Web to open')).toBeVisible();
+  const cards = page.locator('.unified-selector-card');
+  await expect(cards).toHaveCount(2);
+  await cards.nth(1).click();
+  await expect.poll(() => storeEval(page, (st) => st.activeGraphId)).toBe(webs[1]);
+  expect(await storeEval(page, (st) => st.graphs.size)).toBe(ids.size + 2);
+});
+
+test('F23e read-only: search reads the same, the + is gone, and Auto Layout is dimmed', async ({ page }) => {
+  await openFixture(page, 'small');
+  const ids = await storeEval(page, (st) => ({
+    size: st.graphs.size,
+    thing: [...st.nodePrototypes.values()].find(p => !p.definitionGraphIds?.length && p.id !== 'base-thing-prototype' && p.name),
+  }));
+  test.skip(!ids.thing, 'fixture has no Thing without a Web');
+  await page.evaluate(async () => {
+    const { setReadOnlyUniverse } = await import('/src/store/readOnlyUniverse.js');
+    setReadOnlyUniverse({ slug: 'link', name: 'Link', sourceUrl: 'https://example.com/a.redstring' });
+  });
+
+  await expect(page.locator('.header-action-btn[title="Create or Open Web"]:visible')).toHaveCount(0);
+  await expect(page.locator('.header-action-btn[title="Make a copy to edit"]:visible').first()).toHaveAttribute('data-disabled', 'true');
+
+  const nudges = () => page.evaluate(async () => {
+    const { default: store } = await import('/src/store/readOnlyUniverse.js');
+    return store.getState().nudge;
+  });
+  const nudged = await nudges();
+  await openUI(page, 'setSearchScope', 'everything');
+  await page.locator('.unified-selector-card', { hasText: ids.thing.name }).first().click();
+  await expect.poll(() => storeEval(page, (st) => st.rightPanelTabs.find((t) => t.isActive)?.nodeId)).toBe(ids.thing.id);
+  expect(await nudges()).toBe(nudged);
+  expect(await storeEval(page, (st) => st.graphs.size)).toBe(ids.size);
+
+  // However the + was asked for, it's search.
+  await openUI(page, 'setNewWebPrompt', { visible: true });
+  await expect(page.locator('.unified-selector-title-menu')).toHaveText('Search Everything');
 });

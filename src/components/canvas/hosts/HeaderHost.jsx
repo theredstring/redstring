@@ -98,8 +98,7 @@ const handleBookmarkToggle = () => {
 const ui = () => useCanvasUIStore.getState();
 const graph = () => useGraphStore.getState();
 const handleCreateNewThing = () => ui().setNewWebPrompt({ visible: true });
-const handleOpenComponentSearch = () => ui().setHeaderSearchVisible(true);
-const handleOpenAllThingsSearch = () => ui().setHeaderAllThingsSearchVisible(true);
+const handleOpenSearch = () => ui().setSearchScope('everything');
 const handleToggleTrackpadZoom = () => ui().setTrackpadZoomEnabled(prev => !prev);
 const handleOpenForceSim = () => ui().setForceSimModalVisible(true);
 const handleAutoLayout = () => runCanvasCommand('autoLayout');
@@ -157,8 +156,7 @@ function HeaderHost({ hidden = false }) {
         onSetActiveGraph={setActiveGraph}
         gamepadFocusedGraphId={gamepadFocusedGraphId}
         onCreateNewThing={handleCreateNewThing}
-        onOpenComponentSearch={handleOpenComponentSearch}
-        onOpenAllThingsSearch={handleOpenAllThingsSearch}
+        onOpenSearch={handleOpenSearch}
         onActionHoverChange={setActionHover}
         isExclusivePanelMode={isExclusivePanelMode}
         trackpadZoomEnabled={trackpadZoomEnabled}

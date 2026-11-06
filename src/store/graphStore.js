@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import useCanvasUIStore, { setGroupAnchorLookup } from './canvasUIStore.js';
-import { isReadOnlyUniverseOpen, nudgeReadOnlyUniverse, readOnlyRefusesLoad, withDocumentKept } from './readOnlyUniverse.js';
+import { isInsidePersonsAct, isReadOnlyUniverseOpen, nudgeReadOnlyUniverse, readOnlyRefusesLoad, withDocumentKept } from './readOnlyUniverse.js';
 import { produce as immerProduce, produceWithPatches, applyPatches, enableMapSet, enablePatches, current, isDraft } from 'immer';
 import { CONNECTION_LABEL_COLOR_MODES, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_RING_WIDTH, CONNECTION_LABEL_RING_WIDTH_MIN, CONNECTION_LABEL_RING_WIDTH_MAX, CONNECTION_LABEL_MOVE_FADE_MODES, DEFAULT_CONNECTION_LABEL_MOVE_FADE, DEFAULT_CONNECTION_LABEL_TRUNCATE, DEFAULT_CONNECTION_LABEL_SPRITES, EDGE_GLOW_MODES, DEFAULT_EDGE_GLOW_MODE, DEFAULT_EDGE_GLOW_INTENSITY, clampEdgeGlowIntensity, LIFTED_THING_SHADOW_MODES, DEFAULT_LIFTED_THING_SHADOW } from '../utils/colorUtils.js';
 
@@ -1652,8 +1652,9 @@ const saveCoordinatorMiddleware = (config) => {
       // Intermediate drag frames are not edits; only the drop is.
       const isUnfinalizedDrag = POSITION_TYPES.has(changeContext.type) && !changeContext.finalize;
 
-      // Answers something the person just did, not a background writer.
-      if (readOnlyRefused && !optedOut && globalThis.navigator?.userActivation?.isActive) nudgeReadOnlyUniverse();
+      // Answers an edit the person is making, not moving around or a background
+      // writer (group anchors settling after a click or a pan write positions).
+      if (readOnlyRefused && !optedOut && !POSITION_TYPES.has(changeContext.type) && isInsidePersonsAct()) nudgeReadOnlyUniverse();
 
       if (!optedOut && !isUnfinalizedDrag && docPatches.length > 0) {
         // An abort belongs to the same coalesce group as the edit it ends: the

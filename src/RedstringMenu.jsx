@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import MaroonSlider from './components/MaroonSlider.jsx';
-import { ChevronRight, Copy, FileText, FolderOpen, Save, Clock, Globe, BookOpen, Home, LayoutGrid, Activity, RefreshCw, Undo2, Redo2, Settings, GitMerge, Move, Moon, Maximize, ZoomIn, Tag, Grid3x3, Keyboard, Type, Minus, CornerDownRight, Spline, Circle, MonitorDown, Link as LinkIcon, Library } from 'lucide-react';
+import { ChevronRight, Copy, FileText, FolderOpen, Save, Clock, Globe, BookOpen, Home, Activity, RefreshCw, Undo2, Redo2, Settings, GitMerge, Move, Moon, Maximize, ZoomIn, Tag, Grid3x3, Keyboard, Type, Minus, CornerDownRight, Spline, Circle, MonitorDown, Link as LinkIcon, Library } from 'lucide-react';
 import './RedstringMenu.css';
 import { canOfferDesktopDownload, openDesktopDownload } from './utils/desktopDownload.js';
 import * as fileStorage from './store/fileStorage.js';
 import useHistoryStore from './store/historyStore.js';
 import { performUndo, performRedo } from './store/historyActions.js';
 import useGraphStore from './store/graphStore.js';
+import Broom from './components/shared/broomIcon.js';
 import useReadOnlyUniverse, { selectReadOnlyOpen } from './store/readOnlyUniverse.js';
 import { READ_ONLY_HINT } from './components/canvas/pie/readOnlyButtons.js';
 import { requestRefresh } from './components/canvas/dialogs/refresh.js';
@@ -823,7 +824,7 @@ const RedstringMenu = ({
                           }}
                           style={{ cursor: 'pointer' }}
                         >
-                          <LayoutGrid size={14} style={{ marginRight: '8px', minWidth: '14px', flexShrink: 0 }} />
+                          <Broom size={14} style={{ marginRight: '8px', minWidth: '14px', flexShrink: 0 }} />
                           Auto Layout Web
                         </div>
 

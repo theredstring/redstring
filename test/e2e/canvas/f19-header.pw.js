@@ -22,7 +22,7 @@ const movedCount = (before, after) => Object.keys(before.instances).filter((id) 
   return b && (Math.abs(a.x - b.x) > 0.5 || Math.abs(a.y - b.y) > 0.5);
 }).length;
 
-test('F19 header buttons: bookmark, new web, both searches, and renaming the web', async ({ page }) => {
+test('F19 header buttons: bookmark, new web, search, auto layout, and renaming the web', async ({ page }) => {
   await openFixture(page, 'small');
 
   const bookmarked = () => storeEval(page, (st) => {
@@ -38,14 +38,14 @@ test('F19 header buttons: bookmark, new web, both searches, and renaming the web
   await expect.poll(() => ui(page, 'newWebPrompt')).toBe(true);
   await setUI(page, 'setNewWebPrompt', { visible: false });
 
-  await headerButton(page, 'Search All Things').click();
-  await expect.poll(() => ui(page, 'headerAllThingsSearchVisible')).toBe(true);
-  await setUI(page, 'setHeaderAllThingsSearchVisible', false);
+  await headerButton(page, 'Search Everything').click();
+  await expect.poll(() => ui(page, 'searchScope')).toBe('everything');
+  await setUI(page, 'setSearchScope', null);
 
-  const webName = await storeEval(page, (st) => st.graphs.get(st.activeGraphId).name);
-  await headerButton(page, `Search ${webName}`).click();
-  await expect.poll(() => ui(page, 'headerSearchVisible')).toBe(true);
-  await setUI(page, 'setHeaderSearchVisible', false);
+  const beforeLayout = await activeGraphSnapshot(page);
+  await headerButton(page, 'Auto Layout Web').click();
+  await expect.poll(async () => movedCount(beforeLayout, await activeGraphSnapshot(page)), { timeout: 10_000 })
+    .toBeGreaterThan(0);
 
   const activeId = await storeEval(page, (st) => st.activeGraphId);
   await page.locator(`[data-header-tab-id="${activeId}"]`).dblclick();

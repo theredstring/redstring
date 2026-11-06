@@ -52,7 +52,7 @@ test('F50 a link opens read-only: no onboarding, edits refused, nothing remember
   await page.goto(LINK);
   await expect(page.getByTestId('read-only-bar')).toBeVisible({ timeout: 30_000 });
   await waitForCanvasReady(page);
-  await expect(page.getByText('Read Only', { exact: true })).toBeVisible();
+  await expect(page.getByTestId('read-only-bar').getByText('Read Only', { exact: true })).toBeVisible();
   await expect(page.getByTestId('read-only-open-in-app')).toHaveAttribute('href', /^redstring:\/\/open\?url=/);
 
   const before = await store(page);
@@ -60,7 +60,7 @@ test('F50 a link opens read-only: no onboarding, edits refused, nothing remember
 
   // Background work (no one did anything) gets no answer.
   await page.waitForTimeout(2_000);
-  await expect(page.getByText('Read Only', { exact: true })).toBeVisible();
+  await expect(page.getByTestId('read-only-bar').getByText('Read Only', { exact: true })).toBeVisible();
 
   await renameAlpha(page, 'Vandalised');
   expect((await store(page)).names).toContain('Alpha');
@@ -77,8 +77,7 @@ test('F50 a link opens read-only: no onboarding, edits refused, nothing remember
   const box = await node.boundingBox();
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.down();
-  await page.waitForTimeout(350);
-  await expect(page.getByText('Make a copy to edit')).toBeVisible();
+  await page.waitForTimeout(700);
   await page.mouse.move(box.x + 180, box.y + 140, { steps: 8 });
   await page.mouse.up();
   await page.waitForTimeout(250);
@@ -287,7 +286,7 @@ test('F50 the panel and the menu: read-only row, copy of your own, new universe 
   await waitForCanvasReady(page);
 
   // A visit opens on Universes: what you're viewing, and no storage to fill.
-  await expect(page.getByText('READ ONLY')).toBeInViewport();
+  await expect(page.getByText('READ ONLY', { exact: true })).toBeInViewport();
   await expect(page.getByText('Nothing is saved. Make a copy to keep it and edit it.')).toBeVisible();
   await expect(page.getByText('Storage', { exact: true })).toBeHidden();
   await page.screenshot({ path: test.info().outputPath('panel-read-only.png') });
@@ -296,7 +295,7 @@ test('F50 the panel and the menu: read-only row, copy of your own, new universe 
   await pillSettled(page);
   await page.locator('button[aria-label="Make a Copy"]').click();
   await expect(page.getByTestId('read-only-bar')).toBeHidden();
-  await expect(page.getByText('READ ONLY')).toBeHidden();
+  await expect(page.getByText('READ ONLY', { exact: true })).toBeHidden();
   await expect(page.getByText('Storage', { exact: true })).toBeVisible();
 
   // Now a universe of your own: the row's button makes "Copy of".
@@ -345,7 +344,7 @@ test('F50 read-only: Decompose is a flip-through that changes nothing; edits are
     return { id: instance.id, prototypeId: proto.id };
   });
 
-  await expect(page.getByText('READ ONLY')).not.toBeInViewport();
+  await expect(page.getByText('READ ONLY', { exact: true })).not.toBeInViewport();
   await openPieMenu(page, found.id);
   await page.waitForTimeout(500);
   await page.screenshot({ path: test.info().outputPath('pie-read-only.png') });
@@ -515,6 +514,136 @@ test('F50 the pill sits over the TypeList and rides on top of a control panel', 
   await page.screenshot({ path: test.info().outputPath('pill-panel-open.png') });
 });
 
+test('F50 nothing to make or remove: no plus sign, no keys, no formula, nothing to import', async ({ page }) => {
+  await hostFile(page);
+  await page.goto(LINK);
+  await expect(page.getByTestId('read-only-bar')).toBeVisible({ timeout: 30_000 });
+  await waitForCanvasReady(page);
+  await pillSettled(page);
+  const before = await store(page);
+
+  // Empty canvas, clear of the panel and the pill.
+  await page.mouse.click(1000, 600);
+  await page.waitForTimeout(400);
+  await page.mouse.click(1000, 600);
+  await page.waitForTimeout(400);
+  await expect(page.locator('svg.canvas g[data-plus-sign="true"]')).toHaveCount(0);
+
+  // A selection stays through the keys that would change it.
+  const selected = () => page.evaluate(async () => {
+    const { default: ui } = await import('/src/store/canvasUIStore.js');
+    return [...ui.getState().selectedInstanceIds];
+  });
+  await page.evaluate(async () => {
+    const { default: useGraphStore } = await import('/src/store/graphStore.js');
+    const { default: ui } = await import('/src/store/canvasUIStore.js');
+    const s = useGraphStore.getState();
+    const beta = [...s.graphs.get(s.activeGraphId).instances.values()].find((i) => s.nodePrototypes.get(i.prototypeId)?.name === 'Beta');
+    ui.getState().setSelectedInstanceIds(new Set([beta.id]));
+  });
+  const selection = await selected();
+  expect(selection).toHaveLength(1);
+  await page.keyboard.press('ControlOrMeta+c');
+  for (const key of ['Delete', 'Backspace', 'ControlOrMeta+x', 'ControlOrMeta+v']) {
+    await page.keyboard.press(key);
+    await page.waitForTimeout(100);
+    expect(await selected(), key).toEqual(selection);
+  }
+  expect(await store(page)).toEqual(before);
+
+  // The formula box's own way of building, called directly.
+  const web = await page.evaluate(async () => {
+    const { default: useGraphStore } = await import('/src/store/graphStore.js');
+    const { buildFormulaInWeb } = await import('/src/components/canvas/formats/formula/buildFormula.js');
+    const { openFormulaComposer } = await import('/src/components/canvas/formats/formatsStore.js');
+    const { activeGraphId } = useGraphStore.getState();
+    try { buildFormulaInWeb('F = m a', activeGraphId, { x: 0, y: 0 }, undefined, {}); } catch { /* Refused is fine. */ }
+    openFormulaComposer(activeGraphId, { x: 0, y: 0 });
+    const s = useGraphStore.getState();
+    return { same: s.activeGraphId === activeGraphId, there: s.graphs.has(s.activeGraphId) };
+  });
+  expect(web).toEqual({ same: true, there: true });
+  expect(await store(page)).toEqual(before);
+  await page.waitForTimeout(200);
+  await expect(page.locator('.formula-selector')).toHaveCount(0);
+
+  // Loads and merges from anywhere but the switch that opened it.
+  const refused = await page.evaluate(async () => {
+    const { default: useGraphStore } = await import('/src/store/graphStore.js');
+    const s = useGraphStore.getState();
+    return {
+      load: s.loadUniverseFromFile({ graphs: new Map(), nodePrototypes: new Map(), edges: new Map(), edgePrototypes: new Map() }),
+      merge: s.mergeUniverseState({ graphs: new Map(), nodePrototypes: new Map(), edges: new Map(), edgePrototypes: new Map() }),
+    };
+  });
+  expect(refused).toEqual({ load: false, merge: null });
+  expect(await store(page)).toEqual(before);
+
+  // The menu says so.
+  await page.getByRole('button', { name: 'Redstring Menu' }).click();
+  await page.getByText('File', { exact: true }).first().hover();
+  const importOntology = page.locator('.submenu-item', { hasText: 'Import Ontology' });
+  await expect(importOntology).toHaveCSS('opacity', '0.4');
+  await page.screenshot({ path: test.info().outputPath('menu-read-only.png') });
+});
+
+test('F50 an attempted edit says Read Only at the bottom right, and moving around does not', async ({ page }) => {
+  await hostFile(page);
+  await page.goto(LINK);
+  await expect(page.getByTestId('read-only-bar')).toBeVisible({ timeout: 30_000 });
+  await waitForCanvasReady(page);
+  await pillSettled(page);
+
+  const notice = page.locator('.save-status-display');
+  const opacity = () => notice.evaluate((el) => Number(getComputedStyle(el).opacity));
+  await expect(notice).toHaveText('Read Only');
+  await expect.poll(opacity).toBe(0);
+  const answers = () => page.evaluate(async () => {
+    const { default: readOnly } = await import('/src/store/readOnlyUniverse.js');
+    return readOnly.getState().nudge;
+  });
+  const before = await answers();
+
+  // Looking around: clicks, the wheel, panning, a held drag on a Thing, other webs.
+  const center = async (locator) => { const b = await locator.boundingBox(); return { x: b.x + b.width / 2, y: b.y + b.height / 2 }; };
+  await page.mouse.click(1000, 600);
+  await page.mouse.move(700, 400);
+  await page.mouse.wheel(0, -200);
+  await page.mouse.wheel(120, 80);
+  await page.mouse.move(1000, 600);
+  await page.mouse.down();
+  await page.mouse.move(900, 500, { steps: 8 });
+  await page.mouse.up();
+  await page.waitForTimeout(800);
+  const thing = await center(page.locator('svg.canvas g.node').nth(2));
+  await page.mouse.move(thing.x, thing.y);
+  await page.mouse.down();
+  await page.waitForTimeout(700);
+  await page.mouse.move(thing.x + 150, thing.y + 150, { steps: 8 });
+  await page.mouse.up();
+  await page.waitForTimeout(800);
+  await page.mouse.click(1000, 600);
+  await page.getByText('Small Web B').first().click();
+  await page.waitForTimeout(600);
+  await page.getByText('Small Web A').first().click();
+  await page.waitForTimeout(1_500);
+  expect(await answers()).toBe(before);
+  expect(await opacity()).toBe(0);
+
+  // An attempt: it comes up quickly, stays for a moment, and goes.
+  const node = await center(page.locator('svg.canvas g.node').first());
+  await page.mouse.click(node.x, node.y);
+  await page.waitForTimeout(500);
+  expect(await opacity()).toBe(0);
+  await page.keyboard.press('Delete');
+  await expect.poll(opacity, { timeout: 500, intervals: [50] }).toBe(1);
+  await page.screenshot({ path: test.info().outputPath('read-only-notice.png') });
+  await page.waitForTimeout(600);
+  expect(await opacity()).toBe(1);
+  await expect.poll(opacity, { timeout: 2_500, intervals: [100] }).toBe(0);
+  expect(await answers()).toBe(before + 1);
+});
+
 test('F50 the bar fits a phone', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 780 });
   await hostFile(page);
@@ -529,12 +658,12 @@ test('F50 the bar fits a phone', async ({ page }) => {
   await page.screenshot({ path: test.info().outputPath('phone.png') });
 
   // The panel doesn't cover the universe here, but it's on Universes when opened.
-  await expect(page.getByText('READ ONLY')).not.toBeInViewport();
+  await expect(page.getByText('READ ONLY', { exact: true })).not.toBeInViewport();
   await page.evaluate(async () => {
     const { default: useGraphStore } = await import('/src/store/graphStore.js');
     useGraphStore.getState().setLeftPanelExpanded(true);
   });
-  await expect(page.getByText('READ ONLY')).toBeInViewport();
+  await expect(page.getByText('READ ONLY', { exact: true })).toBeInViewport();
 });
 
 test('F50 the pill hides and the visit goes on; Universes is the way out', async ({ page }) => {
@@ -549,7 +678,7 @@ test('F50 the pill hides and the visit goes on; Universes is the way out', async
   await expect(page.getByTestId('read-only-bar')).toBeHidden();
   expect(new URL(page.url()).pathname).toBe('/open');
   expect(await store(page)).toEqual(before);
-  await expect(page.getByText('READ ONLY')).toBeInViewport();
+  await expect(page.getByText('READ ONLY', { exact: true })).toBeInViewport();
 
   // Refused edits don't bring it back.
   await renameAlpha(page, 'Vandalised');

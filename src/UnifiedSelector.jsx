@@ -18,6 +18,7 @@ import { haptic } from './services/haptics.js';
 import './components/canvas/formats/formats.css';
 import './UnifiedSelector.css';
 import { VectorText } from './components/VectorText.jsx';
+import MorphingTitle from './components/shared/MorphingTitle.jsx';
 
 // A type's name in the filter and the title, cut short past this many
 // characters.
@@ -121,6 +122,11 @@ const UnifiedSelector = ({
   // A number for a Thing's card, in a badge at its top right, as a phone's
   // app icon carries one; none for 0 (New Web's Thing page: its Webs).
   cardBadge = null,
+  // The title as a chooser of what the box holds, with a chevron and a menu of
+  // these ({ value, label }); `onTitleOption` is told the value chosen. `title`
+  // is still the title: the caller changes it, and it glides to the new one.
+  titleOptions = null,
+  onTitleOption = null,
   // The name field takes the keys on open, so typing starts at once. Never on
   // touch: it would bring the keyboard up over the box.
   autoFocus = true,
@@ -164,7 +170,7 @@ const UnifiedSelector = ({
   const allowedPrototypes = React.useMemo(() => {
     const prototypes = Array.from(nodePrototypesMap.values());
     // Restrict to allowed ids if provided
-    if (allowedPrototypeIds && (allowedPrototypeIds.size || allowedPrototypeIds.length)) {
+    if (allowedPrototypeIds) {
       const allowedSet = allowedPrototypeIds instanceof Set ? allowedPrototypeIds : new Set(allowedPrototypeIds);
       return prototypes.filter(p => allowedSet.has(p.id));
     }
@@ -177,6 +183,9 @@ const UnifiedSelector = ({
   const showTypeFilter = showGrid && !gridContent && !headerAside;
   const [typeFilterId, setTypeFilterId] = useState(null);
   const [typeMenuRect, setTypeMenuRect] = useState(null);
+  const [titleMenuRect, setTitleMenuRect] = useState(null);
+  const ownInputRef = useRef(null);
+  const nameFieldRef = inputRef || ownInputRef;
   const typeOptions = React.useMemo(() => {
     if (!showTypeFilter) return [];
     const types = new Map();
@@ -190,8 +199,9 @@ const UnifiedSelector = ({
   }, [showTypeFilter, allowedPrototypes, nodePrototypesMap]);
   // A type that has since lost its last Thing (or was deleted) is All Types.
   const activeType = typeOptions.find(t => t.id === typeFilterId) || null;
-  // With a type chosen, the title asks for one of it.
-  const headerTitle = activeType
+  // With a type chosen, the title asks for one of it. A title that is a chooser
+  // keeps saying what it chose: the filter beside it already names the type.
+  const headerTitle = activeType && !titleOptions
     ? `Choose ${getArticleFor(activeType.name)} ${shortTypeName(activeType)}`
     : title;
   // Memoized: the menu re-measures, and re-arms its tap guard, on new options.
@@ -223,6 +233,13 @@ const UnifiedSelector = ({
 
   const [cardLimit, setCardLimit] = useState(FIRST_CARDS);
   const cardCount = filteredPrototypes.length;
+  // A different list under a new title starts again from a screenful, so the
+  // title's glide isn't sharing its first frame with every card.
+  const [limitTitle, setLimitTitle] = useState(title);
+  if (limitTitle !== title) {
+    setLimitTitle(title);
+    setCardLimit(FIRST_CARDS);
+  }
   useEffect(() => {
     if (!isVisible) { setCardLimit(FIRST_CARDS); return undefined; }
     if (cardLimit >= cardCount) return undefined;
@@ -251,6 +268,7 @@ const UnifiedSelector = ({
     if (closeTimerRef.current || !onCloseRef.current) return;
     setColorPickerVisible(false);
     setTypeMenuRect(null);
+    setTitleMenuRect(null);
     if (prefersReducedMotion()) { setName(''); onCloseRef.current(); return; }
     setClosing(true);
     closeTimerRef.current = setTimeout(finishClose, EXIT_MS);
@@ -664,7 +682,7 @@ const UnifiedSelector = ({
                   />
                 )}
                 <input
-                  ref={inputRef}
+                  ref={nameFieldRef}
                   className="unified-selector-control"
                   type="text"
                   value={name}
@@ -773,6 +791,21 @@ const UnifiedSelector = ({
                       </span>
                       <span className="unified-selector-header-title">{headerTitle}</span>
                     </span>
+                  ) : titleOptions ? (
+                    <button
+                      type="button"
+                      className="unified-selector-title-menu unified-selector-control"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setTitleMenuRect(e.currentTarget.getBoundingClientRect());
+                      }}
+                    >
+                      <MorphingTitle text={headerTitle} />
+                      <ChevronDown
+                        size={13}
+                        style={{ flexShrink: 0, opacity: 0.8, transition: 'transform 0.15s ease', transform: titleMenuRect ? 'rotate(180deg)' : 'rotate(0deg)' }}
+                      />
+                    </button>
                   ) : (
                     <span className="unified-selector-header-title">{headerTitle}</span>
                   )}
@@ -863,6 +896,30 @@ const UnifiedSelector = ({
               scrollContainerRef.current?.scrollTo({ top: 0 });
             }}
             onClose={() => setTypeMenuRect(null)}
+          />
+        </div>
+      )}
+
+      {titleMenuRect && (
+        // As the type menu above.
+        <div
+          style={{ position: 'fixed', zIndex: 1000000 }}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          onTouchEnd={(e) => e.stopPropagation()}
+          onWheel={(e) => e.stopPropagation()}
+        >
+          <ContextMenu
+            x={titleMenuRect.left}
+            y={titleMenuRect.bottom + 4}
+            options={titleOptions}
+            onSelect={(option) => {
+              onTitleOption?.(option.value);
+              scrollContainerRef.current?.scrollTo({ top: 0 });
+              // Back to typing, with the same words looked for in the new list.
+              if (!mobileState.isTouchDevice) nameFieldRef.current?.focus();
+            }}
+            onClose={() => setTitleMenuRect(null)}
           />
         </div>
       )}

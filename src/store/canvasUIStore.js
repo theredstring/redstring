@@ -217,9 +217,10 @@ export function createCanvasUIDefaults() {
     swapPrompt: { visible: false, instanceId: null, name: '', color: null },
     newWebPrompt: { visible: false },
 
-    // modals and header searches (F-47 #7)
-    headerSearchVisible: false,
-    headerAllThingsSearchVisible: false,
+    // modals (F-47 #7), and search: null while it's closed, otherwise where it
+    // opened to look (hosts/SearchHosts.jsx).
+    /** @type {null|'everything'|'open-webs'|'this-web'|'saved'} */
+    searchScope: null,
     showHelpModal: false,
     showSettingsModal: false,
     showMergeThingsModal: false,
@@ -630,9 +631,8 @@ const useCanvasUIStore = create((set, get) => ({
   setSwapPrompt: fieldSetter(set, 'swapPrompt', shallowEqual),
   setNewWebPrompt: fieldSetter(set, 'newWebPrompt', shallowEqual),
 
-  // modals and header searches
-  setHeaderSearchVisible: fieldSetter(set, 'headerSearchVisible'),
-  setHeaderAllThingsSearchVisible: fieldSetter(set, 'headerAllThingsSearchVisible'),
+  // modals and search
+  setSearchScope: fieldSetter(set, 'searchScope'),
   setShowHelpModal: fieldSetter(set, 'showHelpModal'),
   setShowSettingsModal: fieldSetter(set, 'showSettingsModal'),
   setShowMergeThingsModal: fieldSetter(set, 'showMergeThingsModal'),

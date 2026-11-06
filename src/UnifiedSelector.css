@@ -124,6 +124,58 @@
   white-space: nowrap;
 }
 
+/* The title as a chooser, as the Wizard's is in the left panel: its chevron
+   follows the end of the text as it changes (MorphingTitle). */
+.unified-selector-title-menu {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 1;
+  min-width: 0;
+  padding: 2px 4px 2px 0;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+  touch-action: manipulation;
+  transition: opacity 0.15s ease;
+}
+
+.unified-selector-title-menu:hover {
+  opacity: 0.7;
+}
+
+.morphing-title {
+  display: block;
+  flex-shrink: 1;
+  min-width: 0;
+  overflow: hidden;
+  transition: width 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.morphing-title-line {
+  display: inline-block;
+  white-space: pre;
+}
+
+.morphing-title-tail {
+  position: relative;
+}
+
+.morphing-title-leaving {
+  position: absolute;
+  left: 0;
+  top: 0;
+  animation: us-fade-out 160ms ease forwards;
+}
+
+.morphing-title-entering {
+  animation: us-fade-in 160ms ease backwards;
+}
+
 /* The type filter at the title's right: a node of the type it names, as wide
    as its name. */
 .unified-selector-type-filter {
@@ -272,5 +324,17 @@
   .unified-selector-box,
   .unified-selector-scroll {
     animation: none !important;
+  }
+
+  .morphing-title {
+    transition: none;
+  }
+
+  .morphing-title-entering {
+    animation: none;
+  }
+
+  .morphing-title-leaving {
+    display: none;
   }
 }

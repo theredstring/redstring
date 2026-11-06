@@ -36,11 +36,13 @@ redstring://open?gh=...
 
 Three layers keep it read-only, all keyed on `src/store/readOnlyUniverse.js`:
 
-1. **The store.** `graphStore`'s middleware keeps the document roots on every write except a load (`withDocumentKept`). Where you are in the universe (active web, open tabs, camera) still changes.
-2. **Saving.** SaveCoordinator's `onStateChange`, `executeSave`, `flush` and `forceSave` refuse, beside the load gate. So do the backend's direct paths, `saveActiveUniverseInternal` and `forceSave`.
-3. **Gestures.** Dragging and drawing connections don't start (`useNodeDrag`, `pointerHandlers`), because a drag moves the DOM before the store hears about it.
+1. **The store.** `graphStore`'s middleware refuses, whole, any write that would change a document root (`withDocumentKept`), so a refused "new web" doesn't also go to the web it would have made. Where you are in the universe (active web, open tabs, camera) still changes. The only load it takes is its own, stamped with its slug by the switch that opened it (`readOnlyRefusesLoad`): a file, a late reload of the universe left behind, anything unstamped is refused. `mergeUniverseState` refuses, which covers ontology import, the formula starter and merging a link in. `test/store/readOnlyUniverse.test.js` calls every store action with real ids and checks all this; a new action is covered without anyone adding it.
+2. **Saving.** SaveCoordinator's `onStateChange`, `executeSave`, `flush` and `forceSave` refuse, beside the load gate. So do the backend's direct paths, `saveActiveUniverseInternal` and `forceSave`, restoring a backup or a Git version, the File menu's own open and save (`universeFileActions`), and forwarding to a headless daemon (`daemonCoexistence`).
+3. **Gestures.** Dragging and drawing connections don't start (`useNodeDrag`, `pointerHandlers`), because a drag moves the DOM before the store hears about it. Neither do the things a refused write would leave half done: the plus sign and its bubbles, the formula box and its offer, and cut, paste and delete from the keyboard (`useCanvasKeyboard`). Settings rows and File menu items that edit are dimmed.
 
 A refused edit, within a moment of the person's own gesture, nudges the bar (`nudgeReadOnlyUniverse`). Background writes don't.
+
+The Wizard still works here, and its writes are refused like any other, but it doesn't know that: it can say it built something it didn't.
 
 **What stays live.** The pill (`ReadOnlyHost`) sits over the TypeList and rides on top of whichever control panel is up (`store/bottomPanelTop.js`; the panel reports its own top edge). Its X hides it until the next visit and the visit goes on. A visit opens the left panel on Universes (the tab is ready but the panel stays shut where panels are exclusive), and the universe's row there is the way out. Editing buttons stay where they are, dimmed, in the node, connection and group pies (`pie/readOnlyButtons.js`), the context menus, the bottom panel (`data-view-only` marks what stays live) and the right panel. The pie and bottom panel lists name what only looks, so a new button dims by default.
 

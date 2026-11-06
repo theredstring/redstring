@@ -2090,7 +2090,6 @@ function NodeCanvas() {
 
   // Header search state
   // The searches render from SearchHosts (P2.06d); the keyboard shortcut opens one.
-  const setHeaderSearchVisible = useCanvasUIStore(s => s.setHeaderSearchVisible);
   // The force-sim tuner renders from ForceSimHost (P2.06f); the canvas menu opens it.
   const setForceSimModalVisible = useCanvasUIStore(s => s.setForceSimModalVisible);
 
@@ -2816,7 +2815,7 @@ function NodeCanvas() {
 
   // Panel toggle and TypeList keyboard shortcuts - work even when inputs are focused
   useEffect(() => listenForShellShortcuts({
-    setHeaderSearchVisible, setNewWebPrompt, handleToggleLeftPanel, handleToggleRightPanel, storeActions,
+    setNewWebPrompt, handleToggleLeftPanel, handleToggleRightPanel, storeActions,
   }), [handleToggleLeftPanel, handleToggleRightPanel, storeActions]);
 
   // Integrated keyboard handling via custom hook

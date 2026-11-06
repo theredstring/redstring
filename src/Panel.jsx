@@ -815,9 +815,6 @@ const Panel = memo(
     const [typeNamePrompt, setTypeNamePrompt] = useState({ visible: false, name: '', color: null, targetNodeId: null, targetNodeName: '' });
 
     // Add new state for search functionality in left panel
-    const [librarySearchVisible, setLibrarySearchVisible] = useState(false);
-    const [gridSearchVisible, setGridSearchVisible] = useState(false);
-    const [allThingsSearchVisible, setAllThingsSearchVisible] = useState(false);
 
     // Add merge modal state for handling events from canvas/tabs
 
@@ -1758,7 +1755,7 @@ const Panel = memo(
             openRightPanelNodeTab={openRightPanelNodeTab}
             leftPanelExpanded={leftPanelExpanded}
             rightPanelExpanded={rightPanelExpanded}
-            onOpenSearch={() => (thingsScope === 'all' ? setAllThingsSearchVisible(true) : setLibrarySearchVisible(true))}
+            onOpenSearch={() => useCanvasUIStore.getState().setSearchScope(thingsScope === 'all' ? 'everything' : 'saved')}
           />
         );
       } else if (leftViewActive === 'grid') {
@@ -1772,7 +1769,7 @@ const Panel = memo(
             leftPanelExpanded={leftPanelExpanded}
             rightPanelExpanded={rightPanelExpanded}
             storeActions={storeActions}
-            onOpenSearch={() => setGridSearchVisible(true)}
+            onOpenSearch={() => useCanvasUIStore.getState().setSearchScope('open-webs')}
           />
         );
       } else if (leftViewActive === 'federation') {
@@ -2345,91 +2342,6 @@ const Panel = memo(
             showCreateNewOption={true}
           />
         )}
-
-        {/* Global Search Selector for Saved Things */}
-        <UnifiedSelector
-          mode="node-selection"
-          isVisible={librarySearchVisible}
-          onClose={() => setLibrarySearchVisible(false)}
-          onNodeSelect={(node) => {
-            if (node.definitionGraphIds && node.definitionGraphIds.length > 0) {
-              const graphIdToOpen = node.definitionGraphIds[0];
-              openGraphTab?.(graphIdToOpen, node.id);
-            } else if (createAndAssignGraphDefinition) {
-              createAndAssignGraphDefinition(node.id);
-            }
-            openRightPanelNodeTab?.(node.id);
-            setLibrarySearchVisible(false);
-          }}
-          title="Search saved Things"
-          leftPanelExpanded={leftPanelExpanded}
-          rightPanelExpanded={rightPanelExpanded}
-          allowedPrototypeIds={Array.from(savedNodesByType.values()).flatMap(group => group.nodes.map(n => n.id))}
-          searchOnly={true}
-        />
-
-        {/* Global Search Selector for All Things */}
-        <UnifiedSelector
-          mode="node-selection"
-          isVisible={allThingsSearchVisible}
-          onClose={() => setAllThingsSearchVisible(false)}
-          onNodeSelect={(node) => {
-            if (node.definitionGraphIds && node.definitionGraphIds.length > 0) {
-              const graphIdToOpen = node.definitionGraphIds[0];
-              openGraphTab?.(graphIdToOpen, node.id);
-            } else if (createAndAssignGraphDefinition) {
-              createAndAssignGraphDefinition(node.id);
-            }
-            openRightPanelNodeTab?.(node.id);
-            setAllThingsSearchVisible(false);
-          }}
-          title="Search Everything"
-          leftPanelExpanded={leftPanelExpanded}
-          rightPanelExpanded={rightPanelExpanded}
-          searchOnly={true}
-        />
-
-        {/* Global Search Selector for Open Webs */}
-        <UnifiedSelector
-          mode="node-selection"
-          isVisible={gridSearchVisible}
-          onClose={() => setGridSearchVisible(false)}
-          onNodeSelect={(node) => {
-            // Find if this node is already open as a graph in the list view
-            const { openGraphIds: openIds, graphs } = useGraphStore.getState();
-            const openGraphMatch = openIds.map(id => graphs.get(id)).find(g =>
-              g?.definingNodeIds && g.definingNodeIds.includes(node.id)
-            );
-
-            if (openGraphMatch) {
-              // It's already open, activate and scroll to it
-              setActiveGraph?.(openGraphMatch.id);
-              handleGridItemClick(openGraphMatch.id);
-              setTimeout(() => {
-                const element = document.querySelector(`[data-graph-id="${openGraphMatch.id}"]`);
-                if (element) {
-                  element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                }
-              }, 50);
-            } else {
-              // Not open, open it or create definition
-              if (node.definitionGraphIds && node.definitionGraphIds.length > 0) {
-                const graphIdToOpen = node.definitionGraphIds[0];
-                openGraphTab?.(graphIdToOpen, node.id);
-              } else if (createAndAssignGraphDefinition) {
-                createAndAssignGraphDefinition(node.id);
-              }
-            }
-            openRightPanelNodeTab?.(node.id);
-            setGridSearchVisible(false);
-          }}
-          title="Find a Web to open"
-          leftPanelExpanded={leftPanelExpanded}
-          rightPanelExpanded={rightPanelExpanded}
-          searchTerm=""
-          searchOnly={true}
-        />
-
       </>
     );
   }

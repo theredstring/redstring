@@ -5,7 +5,8 @@
  * it saw before.
  */
 import { dimMenuEditsWhenReadOnly } from '../pie/readOnlyButtons.js';
-import { Activity, ArrowUpFromDot, Bookmark, ClipboardPaste, Combine, Edit3, Grid3x3, Layers, LayoutGrid, Merge, Orbit, PackageOpen, Palette, RefreshCw, Sigma, Sparkles, Trash2 } from 'lucide-react';
+import Broom from '../../shared/broomIcon.js';
+import { Activity, ArrowUpFromDot, Bookmark, ClipboardPaste, Combine, Edit3, Grid3x3, Layers, Merge, Orbit, PackageOpen, Palette, RefreshCw, Sigma, Sparkles, Trash2 } from 'lucide-react';
 import { SURFACES as WIZARD_SURFACES } from '../../../wizard/prompts/intents.js';
 import { clientToCanvas } from '../../../utils/canvas/viewportMath.js';
 import { getNodeDimensions } from '../../../utils.js';
@@ -29,7 +30,7 @@ export function buildCanvasContextMenuOptions(clientX, clientY, ctx) {
   const options = [
     {
       label: 'Auto Layout Web',
-      icon: <LayoutGrid size={14} />,
+      icon: <Broom size={14} />,
       action: () => {
         triggerAutoLayout();
       }

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { createPortal } from 'react-dom';
 import { ArrowDown, ArrowDownAZ, ArrowDownWideNarrow, ArrowUp, Columns2, Columns3, LayoutGrid, ListOrdered, Merge, Palette, Plus, Search, SlidersHorizontal, Square } from 'lucide-react';
 import GraphListItem from '../../../GraphListItem.jsx';
+import useReadOnlyUniverse, { selectReadOnlyOpen } from '../../../store/readOnlyUniverse.js';
 import { showContextMenu, showContextMenuForElement } from '../../GlobalContextMenu.jsx';
 import { getOpenWebContextMenuOptions } from '../../openWebContextMenu.jsx';
 import PanelIconButton from '../../shared/PanelIconButton.jsx';
@@ -296,6 +297,7 @@ const LeftGridView = ({
   onOpenSearch,
 }) => {
   const theme = useTheme();
+  const readOnly = useReadOnlyUniverse(selectReadOnlyOpen);
   const openGraphs = useOpenGraphsForList();
   const [view, setView] = useOpenWebsView();
   const openGraphsForList = useMemo(() => sortOpenWebs(openGraphs, view.sort), [openGraphs, view.sort]);
@@ -456,16 +458,19 @@ const LeftGridView = ({
             onClick={onOpenSearch}
             title="Search Open Webs"
           />
-          <PanelIconButton
-            icon={Plus}
-            size={20}
-            // Same act as the header's + — open the selector that settles what
-            // defines the new Web. Dispatched rather than called because the
-            // selector is mounted by NodeCanvas, the same route Merge
-            // Duplicates takes out of this panel (see above).
-            onClick={() => window.dispatchEvent(new Event('redstring:new-web'))}
-            title="Create or Open Web"
-          />
+          {/* Read-only there's nothing for it to make, as with the header's. */}
+          {!readOnly && (
+            <PanelIconButton
+              icon={Plus}
+              size={20}
+              // Same act as the header's + — open the selector that settles what
+              // defines the new Web. Dispatched rather than called because the
+              // selector is mounted by NodeCanvas, the same route Merge
+              // Duplicates takes out of this panel (see above).
+              onClick={() => window.dispatchEvent(new Event('redstring:new-web'))}
+              title="Create or Open Web"
+            />
+          )}
           <PanelIconButton
             icon={SlidersHorizontal}
             size={20}

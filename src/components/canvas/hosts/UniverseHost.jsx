@@ -1,7 +1,6 @@
 import React, { Profiler, memo, useCallback, useEffect, useMemo, useRef } from 'react';
 import SaveStatusDisplay from '../../../SaveStatusDisplay';
 import ReadOnlyHost from './ReadOnlyHost.jsx';
-import useReadOnlyUniverse from '../../../store/readOnlyUniverse.js';
 import { readSharedLinkFromAddress } from '../../../services/sharedLink.js';
 import StorageSetupModal from '../../StorageSetupModal.jsx';
 import GitReconnectModal from '../../modals/GitReconnectModal.jsx';
@@ -497,12 +496,11 @@ function UniverseHost() {
     }
   }, []);
 
-  const readOnlyOpen = useReadOnlyUniverse((s) => s.active !== null);
 
   return (
     <Profiler id="UniverseHost" onRender={onRenderProbe}>
       {/* SaveStatusDisplay Component */}
-      <SaveStatusDisplay hidden={showStorageSetupModal || readOnlyOpen} />
+      <SaveStatusDisplay hidden={showStorageSetupModal} />
 
       <ReadOnlyHost />
 

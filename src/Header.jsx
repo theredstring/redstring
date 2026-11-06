@@ -3,7 +3,10 @@ import { createPortal } from 'react-dom';
 import { useDrop } from 'react-dnd';
 import { HEADER_HEIGHT } from './constants';
 import RedstringMenu from './RedstringMenu';
-import { Bookmark, Plus, ScanSearch, HelpCircle, Bug, Settings, Search, Menu, CircleX, Undo2, Redo2, MousePointerClick, RefreshCw } from 'lucide-react';
+import { Bookmark, Plus, HelpCircle, Bug, Settings, Search, Menu, CircleX, Undo2, Redo2, MousePointerClick, RefreshCw } from 'lucide-react';
+import Broom from './components/shared/broomIcon.js';
+import useReadOnlyUniverse, { selectReadOnlyOpen } from './store/readOnlyUniverse.js';
+import { READ_ONLY_HINT } from './components/canvas/pie/readOnlyButtons.js';
 import { useTheme } from './hooks/useTheme.js';
 import useGraphStore from './store/graphStore.js';
 import useHistoryStore from './store/historyStore.js';
@@ -100,8 +103,7 @@ const Header = ({
   onSetActiveGraph,
   // New action props
   onCreateNewThing,
-  onOpenComponentSearch,
-  onOpenAllThingsSearch,
+  onOpenSearch,
   // Hover-chip preview (mirrors the pie-menu hover chip in NodeCanvas): fired
   // with { id, label } while hovering a circular header button, null on leave.
   onActionHoverChange,
@@ -565,6 +567,7 @@ const Header = ({
   const [isEditing, setIsEditing] = useState(false);
 
   const activeGraph = headerGraphs.find(g => g.isActive);
+  const readOnly = useReadOnlyUniverse(selectReadOnlyOpen);
 
   // Derive header colors from active graph's node color
   const { headerBg, headerAccent } = useMemo(() => {
@@ -1205,6 +1208,14 @@ const Header = ({
     );
   }
 
+  // Search and Auto Layout, the same two in the wide row and the hamburger.
+  const searchAction = { key: 'search', Icon: Search, iconSize: 20, strokeWidth: 2.5, title: 'Search Everything', onClick: () => onOpenSearch?.() };
+  const autoLayoutAction = { key: 'auto-layout', Icon: Broom, iconSize: 20, strokeWidth: 2.5, title: readOnly ? READ_ONLY_HINT : 'Auto Layout Web', disabled: readOnly, onClick: () => onAutoLayoutGraph?.() };
+  // Read-only there's nothing for the + to make, and search finds what it opens.
+  const plusActions = readOnly ? [] : [
+    { key: 'plus', Icon: Plus, iconSize: 22, strokeWidth: 3, title: 'Create or Open Web', onClick: () => onCreateNewThing?.() },
+  ];
+
   // The hamburger's column, top-down from the button.
   const hamburgerActions = [
     // Order is deliberate and reads top-down from the hamburger: the
@@ -1217,12 +1228,12 @@ const Header = ({
     // the header, opposite the hamburger. It is the one thing in this
     // column you reach for without already being in the middle of
     // something, so it does not belong behind a tap.
-    { key: 'plus', Icon: Plus, iconSize: 22, strokeWidth: 3, title: 'Create or Open Web', onClick: () => onCreateNewThing?.() },
+    ...plusActions,
     { key: 'bookmark', Icon: Bookmark, iconSize: 22, strokeWidth: 3, title: bookmarkActive ? 'Remove Bookmark' : 'Add Bookmark', onClick: () => onBookmarkToggle?.(), iconExtra: { fill: bookmarkActive ? '#7A0000' : 'none' } },
     { key: 'undo', Icon: Undo2, iconSize: 20, strokeWidth: 2.5, title: 'Undo', onClick: () => performUndo(), disabled: !canUndo },
     { key: 'redo', Icon: Redo2, iconSize: 20, strokeWidth: 2.5, title: 'Redo', onClick: () => performRedo(), disabled: !canRedo },
-    { key: 'all-search', Icon: Search, iconSize: 20, strokeWidth: 2.5, title: 'Search All Things', onClick: () => onOpenAllThingsSearch?.() },
-    { key: 'comp-search', Icon: ScanSearch, iconSize: 22, strokeWidth: 3, title: activeGraph ? `Search ${activeGraph.name}` : 'Search Components', onClick: () => onOpenComponentSearch?.() },
+    searchAction,
+    autoLayoutAction,
     // The right-click menu, for devices that have no right button. It
     // holds Auto Layout, Snap to Grid, Condense, Merge and Paste — a
     // whole surface a phone otherwise cannot reach. NodeCanvas opens it
@@ -1588,11 +1599,9 @@ const Header = ({
       {/* Inline right-side action buttons (wide layout only), rendered in a
           flex row anchored to the right edge.
 
-          Search All Things leads the row rather than trailing the left one.
-          Adding Undo and Redo over there had left the two sides at five and
-          three; moving the search across evens them at four each AND puts the
-          two searches next to each other, which is where they read as a pair —
-          one across everything, one within this web. */}
+          Search leads the row rather than trailing the left one. Adding Undo
+          and Redo over there had left the two sides at five and three; moving
+          the search across evens them at four each. */}
       {!isExclusivePanelMode && (
         <div
           data-header-edge="right"
@@ -1608,27 +1617,31 @@ const Header = ({
           }}
         >
           {[
-            { key: 'all-search', Icon: Search, iconSize: 20, strokeWidth: 2.5, title: 'Search All Things', onClick: () => onOpenAllThingsSearch?.() },
-            { key: 'comp-search', Icon: ScanSearch, iconSize: 22, strokeWidth: 3, title: activeGraph ? `Search ${activeGraph.name}` : 'Search Components', onClick: () => onOpenComponentSearch?.() },
+            searchAction,
+            autoLayoutAction,
             { key: 'bookmark', Icon: Bookmark, iconSize: 22, strokeWidth: 3, title: bookmarkActive ? 'Remove Bookmark' : 'Add Bookmark', onClick: () => onBookmarkToggle?.(), iconExtra: { fill: bookmarkActive ? '#7A0000' : 'none' } },
-            { key: 'plus', Icon: Plus, iconSize: 22, strokeWidth: 3, title: 'Create or Open Web', onClick: () => onCreateNewThing?.() },
+            ...plusActions,
           ].map((action) => (
             <div
               key={action.key}
               className="header-action-btn"
               title={action.title}
-              {...pressable({ label: action.title })}
+              {...pressable({ label: action.title, disabled: action.disabled })}
+              // See the note on the left row: declared so the pad skips it.
+              data-disabled={action.disabled ? 'true' : undefined}
               style={{
                 height: `${HEADER_HEIGHT}px`,
                 width: `${HEADER_HEIGHT}px`,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                cursor: 'pointer',
+                cursor: action.disabled ? 'default' : 'pointer',
+                opacity: action.disabled ? 0.65 : 1,
                 backgroundColor: 'transparent',
               }}
               onClick={(e) => {
                 e.stopPropagation();
+                if (action.disabled) return;
                 haptic('menuSelect');
                 // Also raise the label chip here, not just on mouseenter. Touch
                 // only reaches mouseenter via a synthetic event, which is not
@@ -1638,6 +1651,7 @@ const Header = ({
                 action.onClick?.();
               }}
               onMouseEnter={(e) => {
+                if (action.disabled) return;
                 const circle = e.currentTarget.querySelector('.header-btn-circle');
                 if (circle) {
                   circle.style.transform = 'scale(1.06)';
