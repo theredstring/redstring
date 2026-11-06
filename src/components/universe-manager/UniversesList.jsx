@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
-import { Plus, ChevronDown, Github, Upload, Download, X, Edit, Pencil, Merge, Save, Activity, Link, FileText, ArrowRightLeft, FolderOpen, Folder, RotateCcw, Key, Copy, CopyPlus, Check, History, Info, Library } from 'lucide-react';
+import { Plus, ChevronDown, Github, Upload, Download, X, Edit, Pencil, Merge, Save, Activity, Link, FileText, ArrowRightLeft, FolderOpen, Folder, RotateCcw, Key, Copy, CopyPlus, Check, ExternalLink, History, Info, Library } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme.js';
 
 import PanelSegment from './shared/PanelSegment.jsx';
@@ -9,7 +9,7 @@ import SourceOfTruthPill from './shared/SourceOfTruthPill.jsx';
 import { isCapacitor } from '../../utils/capacitorAdapter.js';
 import { showContextMenuForElement } from '../GlobalContextMenu.jsx';
 import { showNotice } from '../shared/appDialogs.js';
-import { buildSharedLink } from '../../services/sharedLink.js';
+import { buildSharedLink, isInstalledApp, openInApp } from '../../services/sharedLink.js';
 import { sharedLinkForUniverse } from '../../services/universeShare.js';
 import ShareUniverse from './ShareUniverse.jsx';
 
@@ -842,6 +842,15 @@ const UniversesList = ({
                           size={12}
                           onClick={onMakeCopy}
                         />
+                        {!isInstalledApp() && (
+                          <PanelIconButton
+                            icon={ExternalLink}
+                            label="Open in App"
+                            variant="outline"
+                            size={12}
+                            onClick={() => openInApp(universe.raw?.readOnly?.sourceUrl)}
+                          />
+                        )}
                         <PanelIconButton
                           icon={copiedSlug === universe.slug ? Check : Copy}
                           label={copiedSlug === universe.slug ? 'Copied' : 'Copy Link'}

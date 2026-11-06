@@ -98,6 +98,16 @@ export function buildAppLink(sourceUrl) {
   return query ? `redstring://open?${query}` : null;
 }
 
+/** In the desktop or phone app, where there's no other app to hand a link to. */
+export const isInstalledApp = () => typeof window !== 'undefined'
+  && (!!window.electron || window.Capacitor?.isNativePlatform?.() === true);
+
+/** Hand a universe's link to the installed app. */
+export function openInApp(sourceUrl) {
+  const link = buildAppLink(sourceUrl);
+  if (link) window.location.href = link;
+}
+
 /** What a pasted link fetches: the file a shared link names, else as given. */
 export function unwrapSharedLink(input) {
   if (typeof input !== 'string') return input;

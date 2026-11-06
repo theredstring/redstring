@@ -13,6 +13,7 @@ import ZoomBar from './ZoomBar.jsx';
 import FormatsHost from '../formats/FormatsHost.jsx';
 import { useFormulaObjects } from '../formats/formula/useFormulaObjects.js';
 import useGraphStore from '../../../store/graphStore.js';
+import useReadOnlyUniverse, { selectReadOnlyOpen } from '../../../store/readOnlyUniverse.js';
 
 export default function CanvasChrome({ ctx }) {
   const {
@@ -45,6 +46,9 @@ export default function CanvasChrome({ ctx }) {
     nodeControlPanelShouldShow || nodeControlPanelVisible ||
     connectionControlPanelShouldShow || connectionControlPanelVisible ||
     abstractionControlPanelShouldShow || abstractionControlPanelVisible;
+
+  // The read-only pill holds the same spot, and offers Open in App itself.
+  const readOnlyOpen = useReadOnlyUniverse(selectReadOnlyOpen);
 
   return (
     <Profiler id="CanvasChrome" onRender={onRenderProbe}>
@@ -92,7 +96,7 @@ export default function CanvasChrome({ ctx }) {
           center on the same strip of canvas above the TypeList. The pill is
           in no hurry: it waits and pops once the way is clear. */}
       <DownloadAppPill
-        suppressed={showStorageSetupModal || bottomPanelUp}
+        suppressed={showStorageSetupModal || bottomPanelUp || readOnlyOpen}
       />
 
       {/* Zoom bar (Settings › Display). At the bottom it steps aside while a

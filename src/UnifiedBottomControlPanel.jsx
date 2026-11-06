@@ -1,3 +1,4 @@
+import { usePublishBottomPanelTop } from './store/bottomPanelTop.js';
 import useReadOnlyUniverse, { nudgeReadOnlyUniverse, selectReadOnlyOpen } from './store/readOnlyUniverse.js';
 import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { Trash2, Plus, ArrowUpFromDot, ChevronLeft, ChevronRight, Package, PackageOpen, Layers, Edit3, Bookmark, Palette, Orbit, Group, Ungroup, SquarePlus, Combine, Maximize2, Minimize2, Sparkles, NotebookText, Save, RefreshCw, ClipboardCopy, CopyPlus, Merge } from 'lucide-react';
@@ -469,6 +470,8 @@ const UnifiedBottomControlPanel = ({
   // The hidden nav chevrons need no guard: they're `visibility: hidden`, which
   // takes them out of hit-testing entirely, so they never become a click target.
   const readOnly = useReadOnlyUniverse(selectReadOnlyOpen);
+  const panelRef = useRef(null);
+  usePublishBottomPanelTop(panelRef, typeListOpen);
   const handleButtonHaptic = useCallback((e) => {
     // Page-turn arrows step through a set, same as the ◀/▶ nav chevrons below.
     if (e.target?.closest?.('.piemenu-chevron')) {
@@ -856,6 +859,7 @@ const UnifiedBottomControlPanel = ({
 
   return (
     <div
+      ref={panelRef}
       className={`unified-bottom-panel mode-${mode} ${typeListOpen ? 'with-typelist' : ''} ${animationState} ${className}${readOnly ? ' read-only' : ''}`}
       onAnimationEnd={handleAnimationEnd}
       onClickCapture={(e) => {

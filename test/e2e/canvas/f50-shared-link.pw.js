@@ -20,6 +20,10 @@ async function hostFile(page, { status = 200, refused = false } = {}) {
   });
 }
 
+// The pill pops in. Playwright scrolls what it clicks into view first, and doing
+// that mid-animation can scroll the page; a person's click doesn't.
+const pillSettled = (page) => page.locator('.read-only-pill-wrapper.is-visible-steady').waitFor({ timeout: 30_000 });
+
 const store = (page) => page.evaluate(async () => {
   const { default: useGraphStore } = await import('/src/store/graphStore.js');
   const s = useGraphStore.getState();
@@ -95,6 +99,8 @@ test('F50 Make a Copy makes it yours: editable, saved, and there after a reload'
   await waitForCanvasReady(page);
   const viewed = await store(page);
 
+  await pillSettled(page);
+
   await page.getByTestId('read-only-make-copy').click();
   await expect(page.getByTestId('read-only-bar')).toBeHidden();
   expect(new URL(page.url()).pathname).toBe('/');
@@ -120,6 +126,7 @@ test('F50 a link opened while you work: yours is saved, the visit is never remem
   await hostFile(page);
   await page.goto(LINK);
   await expect(page.getByTestId('read-only-bar')).toBeVisible({ timeout: 30_000 });
+  await pillSettled(page);
   await page.getByTestId('read-only-make-copy').click();
   await expect(page.getByTestId('read-only-bar')).toBeHidden();
   await renameAlpha(page, 'Mine Now');
@@ -144,7 +151,9 @@ test('F50 a link opened while you work: yours is saved, the visit is never remem
   expect(saved.names).toEqual(['atlas']);
   expect(saved.active).toBe('atlas');
 
-  await page.getByTestId('read-only-close').click();
+  await pillSettled(page);
+
+  await page.getByTestId('read-only-close').getByRole('button').click();
   await expect(page.getByTestId('read-only-bar')).toBeHidden();
   await expect.poll(async () => (await store(page)).names).toContain('Mine Now');
   expect((await store(page)).names).not.toContain('Vandalised');
@@ -162,12 +171,13 @@ test('F50 a Dropbox link, as Copy link gives it, opens from a shared link and th
   });
 
   await page.goto(`/open?url=${encodeURIComponent(COPIED)}`);
-  await expect(page.getByTestId('read-only-bar')).toContainText('atlas', { timeout: 30_000 });
+  await expect(page.getByTestId('read-only-bar')).toContainText('Read only', { timeout: 30_000 });
   await waitForCanvasReady(page);
   expect(requested.filter((url) => url.includes('dropbox.com/'))).toEqual([]);
 
   // Pasted into the link box, from the File menu, with the Universes panel closed:
   // the one click has to open the box as well as the panel.
+  await pillSettled(page);
   await page.getByTestId('read-only-make-copy').click();
   await expect(page.getByTestId('read-only-bar')).toBeHidden();
   await page.reload();
@@ -180,7 +190,7 @@ test('F50 a Dropbox link, as Copy link gives it, opens from a shared link and th
   await expect(page.getByText('Direct file URL detected')).toBeVisible();
   await page.getByRole('button', { name: 'Fetch & preview' }).click();
   await page.getByText("Just view (read only)").click();
-  await expect(page.getByTestId('read-only-bar')).toContainText('atlas', { timeout: 15_000 });
+  await expect(page.getByTestId('read-only-bar')).toContainText('Read only', { timeout: 15_000 });
   expect(requested.filter((url) => url.includes('dropbox.com/'))).toEqual([]);
 });
 
@@ -204,6 +214,7 @@ test('F50 your own universe is untouched by a visit, and closing goes back to it
   // Have a universe of your own first: make it from a link, then edit and save it.
   await page.goto(LINK);
   await expect(page.getByTestId('read-only-bar')).toBeVisible({ timeout: 30_000 });
+  await pillSettled(page);
   await page.getByTestId('read-only-make-copy').click();
   await expect(page.getByTestId('read-only-bar')).toBeHidden();
   await renameAlpha(page, 'Mine Now');
@@ -215,7 +226,9 @@ test('F50 your own universe is untouched by a visit, and closing goes back to it
   expect((await store(page)).names).not.toContain('Mine Now');
   await page.waitForTimeout(4_000); // Long enough for any save that shouldn't happen.
 
-  await page.getByTestId('read-only-close').click();
+  await pillSettled(page);
+
+  await page.getByTestId('read-only-close').getByRole('button').click();
   await page.waitForURL((url) => url.pathname === '/' && url.search === '');
   await waitForCanvasReady(page);
   expect((await store(page)).names).toContain('Mine Now');
@@ -259,6 +272,7 @@ test('F50 the panel and the menu: read-only row, copy of your own, new universe 
   await page.screenshot({ path: test.info().outputPath('panel-read-only.png') });
 
   // Copying from the panel.
+  await pillSettled(page);
   await page.locator('button[aria-label="Make a Copy"]').click();
   await expect(page.getByTestId('read-only-bar')).toBeHidden();
   await expect(page.getByText('READ ONLY')).toBeHidden();
@@ -360,7 +374,9 @@ test('F50 Share: a link and who it opens for, or what it needs', async ({ page, 
     return route.abort();
   });
   await page.goto(LINK);
-  await page.getByTestId('read-only-make-copy').click({ timeout: 30_000 });
+  await pillSettled(page);
+  await pillSettled(page);
+  await page.getByTestId('read-only-make-copy').click();
   const share = page.getByTestId('share-universe');
   await expect(share).toBeInViewport();
 
@@ -408,12 +424,71 @@ test('F50 Share: a link and who it opens for, or what it needs', async ({ page, 
   expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('gh=grant/secret-maps/main/');
 });
 
+test('F50 the pill sits over the TypeList and rides on top of a control panel', async ({ page }) => {
+  await hostFile(page);
+  await page.goto(LINK);
+  const pill = page.getByTestId('read-only-bar');
+  await expect(pill).toBeVisible({ timeout: 30_000 });
+  await waitForCanvasReady(page);
+  await page.waitForTimeout(600);
+
+  const panel = page.locator('.unified-bottom-panel');
+  const bottomOf = async (locator) => { const b = await locator.boundingBox(); return b.y + b.height; };
+  await expect(panel).toHaveCount(0);
+  const resting = await pill.boundingBox();
+  expect(resting.y, 'low on the screen, not under the header').toBeGreaterThan(600);
+  await page.screenshot({ path: test.info().outputPath('pill-resting.png') });
+  // No second pill in the same spot.
+  await expect(page.locator('.download-app-pill')).toHaveCount(0);
+
+  const select = (names) => page.evaluate(async (wanted) => {
+    const { default: useGraphStore } = await import('/src/store/graphStore.js');
+    const { default: ui } = await import('/src/store/canvasUIStore.js');
+    const s = useGraphStore.getState();
+    const ids = [...s.graphs.get(s.activeGraphId).instances.values()]
+      .filter((i) => wanted.includes(s.nodePrototypes.get(i.prototypeId)?.name)).map((i) => i.id);
+    ui.getState().setSelectedInstanceIds(new Set(ids));
+  }, names);
+  const clearance = async () => (await panel.boundingBox()).y - await bottomOf(pill);
+
+  // A control panel comes up: the pill clears it.
+  await select(['Alpha', 'Beta']);
+  await expect(panel).toHaveCount(1);
+  await expect.poll(clearance, { timeout: 3_000 }).toBeGreaterThan(8);
+  await page.waitForTimeout(500);
+  await expect.poll(clearance).toBeLessThan(20); // Sitting on it, not floating away.
+  await page.screenshot({ path: test.info().outputPath('pill-over-panel.png') });
+
+  // A control panel of another size: still clear of it.
+  await select(['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Theta', 'Iota']);
+  await page.waitForTimeout(400);
+  await expect.poll(clearance).toBeGreaterThan(8);
+
+  // Gone again: the pill comes back down.
+  await select([]);
+  await expect(panel).toHaveCount(0, { timeout: 5_000 });
+  await expect.poll(async () => (await pill.boundingBox()).y, { timeout: 3_000 }).toBeGreaterThan(resting.y - 2);
+
+  // The Universes panel offers Open in App too.
+  await page.evaluate(async () => {
+    const { default: useGraphStore } = await import('/src/store/graphStore.js');
+    const { default: ui } = await import('/src/store/canvasUIStore.js');
+    useGraphStore.getState().setLeftPanelExpanded(true);
+    ui.getState().openLeftPanelView('federation');
+  });
+  await expect(page.locator('button[aria-label="Open in App"]')).toBeInViewport();
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: test.info().outputPath('pill-panel-open.png') });
+});
+
 test('F50 the bar fits a phone', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 780 });
   await hostFile(page);
   await page.goto(LINK);
   const bar = page.getByTestId('read-only-bar');
   await expect(bar).toBeVisible({ timeout: 30_000 });
+  await pillSettled(page);
+  await page.waitForTimeout(2_600); // Past any nudge.
   const box = await bar.boundingBox();
   expect(box.x).toBeGreaterThanOrEqual(0);
   expect(box.x + box.width).toBeLessThanOrEqual(390);

@@ -1,23 +1,31 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Copy, ExternalLink, Eye, X } from 'lucide-react';
+import './ReadOnlyHost.css';
 import Modal from '../../shared/Modal.jsx';
 import { DialogButton } from '../../shared/Dialog.jsx';
+import PanelIconButton from '../../shared/PanelIconButton.jsx';
+import { ZOOM_BAR_HEIGHT } from '../layers/ZoomBar.jsx';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
+import useGraphStore from '../../../store/graphStore.js';
 import useReadOnlyUniverse, { setReadOnlyFailure } from '../../../store/readOnlyUniverse.js';
+import { useBottomPanelTop } from '../../../store/bottomPanelTop.js';
 import { useTheme } from '../../../hooks/useTheme.js';
-import { HEADER_HEIGHT } from '../../../constants';
-import { buildAppLink, clearSharedLinkFromAddress } from '../../../services/sharedLink.js';
+import { useViewportBounds } from '../../../hooks/useViewportBounds';
+import { DEFAULT_ZOOM_BAR_POSITION } from '../../../constants';
+import { buildAppLink, clearSharedLinkFromAddress, isInstalledApp } from '../../../services/sharedLink.js';
 import { makeCopyOfOpenUniverse } from '../actions/makeCopy.js';
 
 const NUDGE_MS = 2400;
 
-const isInstalledApp = () => typeof window !== 'undefined'
-  && (!!window.electron || window.Capacitor?.isNativePlatform?.() === true);
+// Clearance above the TypeList, as the desktop-app pill and the control panels
+// leave, and above a control panel.
+const BOTTOM_GAP = 20;
+const PANEL_GAP = 12;
 
 /**
- * The read-only universe's bar, over the canvas: what you're looking at, and
- * the way to make it yours. A refused edit brings the offer forward. Also the
- * message when a shared link can't be opened.
+ * The read-only universe's pill: that it's read only, and the way to make it
+ * yours. A refused edit brings the offer forward. Also the message when a shared
+ * link can't be opened.
  */
 const ReadOnlyHost = () => {
   const theme = useTheme();
@@ -26,6 +34,27 @@ const ReadOnlyHost = () => {
   const failure = useReadOnlyUniverse((s) => s.failure);
   const [nudged, setNudged] = useState(false);
   const [copying, setCopying] = useState(false);
+  const [animationState, setAnimationState] = useState(null);
+  const wrapperRef = useRef(null);
+  // What the pill links to while it shrinks away, after the universe has gone.
+  const lastActive = useRef(null);
+  if (active) lastActive.current = active;
+
+  const leftPanelExpanded = useGraphStore((s) => s.leftPanelExpanded);
+  const rightPanelExpanded = useGraphStore((s) => s.rightPanelExpanded);
+  const typeListVisible = useGraphStore((s) => s.typeListMode !== 'closed');
+  const zoomBarBelow = useGraphStore((s) =>
+    s.showZoomBar !== false && (s.zoomBarPosition ?? DEFAULT_ZOOM_BAR_POSITION) === 'bottom');
+  const viewportBounds = useViewportBounds(leftPanelExpanded, rightPanelExpanded, typeListVisible);
+  const bottomPanelTop = useBottomPanelTop();
+
+  useEffect(() => {
+    if (active) {
+      setAnimationState((state) => (state === 'visible_steady' ? state : 'popping'));
+    } else {
+      setAnimationState((state) => (state ? 'shrinking' : state));
+    }
+  }, [active]);
 
   useEffect(() => {
     if (!nudge) return undefined;
@@ -60,97 +89,63 @@ const ReadOnlyHost = () => {
     }
   }, [failure]);
 
-  const barButton = {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 6,
-    padding: '5px 10px',
-    borderRadius: 14,
-    border: `1px solid ${theme.canvas.border}`,
-    background: 'transparent',
-    color: theme.canvas.textPrimary,
-    fontFamily: "'EmOne', sans-serif",
-    fontSize: '0.75rem',
-    fontWeight: 600,
-    cursor: 'pointer',
-    whiteSpace: 'nowrap'
-  };
+  // Centred in the usable canvas, as the other pills are: on top of a control
+  // panel when one is up, otherwise just over the TypeList (and the zoom bar when
+  // it shares the strip).
+  const centerX = viewportBounds.x + viewportBounds.width / 2;
+  const bottom = bottomPanelTop !== null
+    ? bottomPanelTop + PANEL_GAP
+    : viewportBounds.bottomReserved + BOTTOM_GAP + (zoomBarBelow ? ZOOM_BAR_HEIGHT + 8 : 0);
+
+  let wrapperClass = 'read-only-pill-wrapper';
+  if (animationState === 'popping') wrapperClass += ' is-popping';
+  else if (animationState === 'visible_steady') wrapperClass += ' is-visible-steady';
+  else if (animationState === 'shrinking') wrapperClass += ' is-shrinking';
+
+  const showing = active || lastActive.current;
 
   return (
     <>
-      {active && (
-        // The full width, with the bar centred in it: a box positioned from the
-        // middle of the screen can only be half as wide before it wraps.
+      {animationState && showing && (
         <div
-          style={{
-            position: 'fixed',
-            top: `calc(${HEADER_HEIGHT}px + var(--safe-area-top, 0px) + 10px)`,
-            left: 16,
-            right: 16,
-            zIndex: 20000,
-            display: 'flex',
-            justifyContent: 'center',
-            pointerEvents: 'none'
+          ref={wrapperRef}
+          className={wrapperClass}
+          style={{ left: centerX, bottom }}
+          onAnimationEnd={(e) => {
+            if (e.target !== wrapperRef.current) return;
+            if (animationState === 'popping') setAnimationState('visible_steady');
+            else if (animationState === 'shrinking') setAnimationState(null);
           }}
         >
-        <div
-          data-testid="read-only-bar"
-          style={{
-            pointerEvents: 'auto',
-            transform: `scale(${nudged ? 1.04 : 1})`,
-            transition: 'transform 0.18s ease',
-            display: 'flex',
-            flexWrap: 'wrap',
-            justifyContent: 'center',
-            alignItems: 'center',
-            gap: 8,
-            padding: '6px 8px 6px 12px',
-            borderRadius: 20,
-            backgroundColor: theme.canvas.bg,
-            border: `1px solid ${nudged ? theme.canvas.brand : theme.canvas.border}`,
-            color: theme.canvas.textPrimary,
-            fontFamily: "'EmOne', sans-serif",
-            fontSize: '0.8rem'
-          }}
-        >
-          <Eye size={15} style={{ flexShrink: 0, color: theme.canvas.brand }} />
-          <span style={{ fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 220 }}>
-            {active.name}
-          </span>
-          <span style={{ color: nudged ? theme.canvas.brand : theme.canvas.textSecondary, whiteSpace: 'nowrap' }}>
-            {nudged ? 'Make a copy to edit' : 'Read only'}
-          </span>
-          <button
-            type="button"
-            data-testid="read-only-make-copy"
-            disabled={copying}
-            onClick={makeCopy}
-            style={{ ...barButton, border: 'none', background: theme.canvas.brand, color: '#DEDADA', opacity: copying ? 0.6 : 1 }}
-          >
-            <Copy size={13} />
-            Make a Copy
-          </button>
-          {!isInstalledApp() && (
-            <a
-              data-testid="read-only-open-in-app"
-              href={buildAppLink(active.sourceUrl) || undefined}
-              style={{ ...barButton, textDecoration: 'none' }}
+          <div data-testid="read-only-bar" className={`read-only-pill${nudged ? ' is-nudged' : ''}`}>
+            <span className="read-only-pill-status">
+              <Eye size={16} strokeWidth={2.5} style={{ flexShrink: 0 }} />
+              {nudged ? 'Make a copy to edit' : 'Read only'}
+            </span>
+            <button
+              type="button"
+              data-testid="read-only-make-copy"
+              className="read-only-pill-button is-primary"
+              disabled={copying}
+              onClick={makeCopy}
             >
-              <ExternalLink size={13} />
-              Open in App
-            </a>
-          )}
-          <button
-            type="button"
-            data-testid="read-only-close"
-            title="Close"
-            aria-label="Close"
-            onClick={close}
-            style={{ ...barButton, border: 'none', padding: 4 }}
-          >
-            <X size={15} />
-          </button>
-        </div>
+              <Copy size={13} strokeWidth={2.5} />
+              Make a Copy
+            </button>
+            {!isInstalledApp() && (
+              <a
+                data-testid="read-only-open-in-app"
+                className="read-only-pill-button"
+                href={buildAppLink(showing.sourceUrl) || undefined}
+              >
+                <ExternalLink size={13} strokeWidth={2.5} />
+                Open in App
+              </a>
+            )}
+            <span data-testid="read-only-close">
+              <PanelIconButton icon={X} size={14} color="maroon" strokeWidth={2.5} onClick={close} title="Close" />
+            </span>
+          </div>
         </div>
       )}
 

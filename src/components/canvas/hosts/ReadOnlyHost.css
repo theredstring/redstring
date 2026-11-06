@@ -1,0 +1,98 @@
+/* The read-only pill: DownloadAppPill's pill and pop/shrink, with room for its
+   buttons. Its bottom edge eases as the control panel under it comes and goes. */
+
+.read-only-pill-wrapper {
+  position: fixed;
+  z-index: 1000;
+  width: max-content;
+  max-width: calc(100vw - 24px);
+  opacity: 0;
+  transform: translateX(-50%) scale(0);
+  transition: bottom 0.2s ease;
+  will-change: transform, opacity;
+}
+
+.read-only-pill-wrapper.is-popping {
+  animation: read-only-pill-pop 400ms cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.read-only-pill-wrapper.is-visible-steady {
+  opacity: 1;
+  transform: translateX(-50%) scale(1);
+}
+
+.read-only-pill-wrapper.is-shrinking {
+  animation: read-only-pill-shrink 150ms cubic-bezier(0.6, -0.28, 0.735, 0.045) forwards;
+}
+
+@keyframes read-only-pill-pop {
+  0% { transform: translateX(-50%) scale(0); opacity: 0; }
+  70% { transform: translateX(-50%) scale(1.05); opacity: 1; }
+  100% { transform: translateX(-50%) scale(1); opacity: 1; }
+}
+
+@keyframes read-only-pill-shrink {
+  0% { transform: translateX(-50%) scale(1); opacity: 1; }
+  100% { transform: translateX(-50%) scale(0); opacity: 0; }
+}
+
+.read-only-pill {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 6px 8px 6px 14px;
+  background-color: #DEDADA;
+  border: 2px solid maroon;
+  border-radius: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  color: maroon;
+  font-family: 'EmOne', sans-serif;
+  font-size: 14px;
+  font-weight: bold;
+  user-select: none;
+  transition: transform 0.18s ease;
+}
+
+.read-only-pill.is-nudged {
+  transform: scale(1.04);
+}
+
+.read-only-pill-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.read-only-pill-button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 2px solid maroon;
+  border-radius: 14px;
+  background: transparent;
+  color: maroon;
+  font: inherit;
+  font-size: 12px;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+
+.read-only-pill-button:hover {
+  transform: scale(1.05);
+}
+
+.read-only-pill-button.is-primary {
+  background: maroon;
+  color: #DEDADA;
+}
+
+.read-only-pill-button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
