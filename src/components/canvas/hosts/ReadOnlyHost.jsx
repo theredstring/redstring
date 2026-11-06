@@ -11,7 +11,7 @@ import useReadOnlyUniverse, { setReadOnlyFailure } from '../../../store/readOnly
 import { useBottomPanelTop } from '../../../store/bottomPanelTop.js';
 import { useTheme } from '../../../hooks/useTheme.js';
 import { useViewportBounds } from '../../../hooks/useViewportBounds';
-import { DEFAULT_ZOOM_BAR_POSITION } from '../../../constants';
+import { DEFAULT_ZOOM_BAR_POSITION, isExclusivePanelMode } from '../../../constants';
 import { buildAppLink, clearSharedLinkFromAddress, isInstalledApp } from '../../../services/sharedLink.js';
 import { makeCopyOfOpenUniverse } from '../actions/makeCopy.js';
 
@@ -24,8 +24,9 @@ const PANEL_GAP = 12;
 
 /**
  * The read-only universe's pill: that it's read only, and the way to make it
- * yours. A refused edit brings the offer forward. Also the message when a shared
- * link can't be opened.
+ * yours. A refused edit brings the offer forward. Its X only hides it: leaving the
+ * universe is the X on its row in Universes, where a visit opens. Also the message
+ * when a shared link can't be opened.
  */
 const ReadOnlyHost = () => {
   const theme = useTheme();
@@ -34,6 +35,7 @@ const ReadOnlyHost = () => {
   const failure = useReadOnlyUniverse((s) => s.failure);
   const [nudged, setNudged] = useState(false);
   const [copying, setCopying] = useState(false);
+  const [hidden, setHidden] = useState(false);
   const [animationState, setAnimationState] = useState(null);
   const wrapperRef = useRef(null);
   // What the pill links to while it shrinks away, after the universe has gone.
@@ -48,13 +50,24 @@ const ReadOnlyHost = () => {
   const viewportBounds = useViewportBounds(leftPanelExpanded, rightPanelExpanded, typeListVisible);
   const bottomPanelTop = useBottomPanelTop();
 
+  // Each visit starts with the pill, on Universes. Where the panels take turns the
+  // tab is ready but stays shut, or it would cover what they came to look at.
+  const visiting = active?.sourceUrl;
   useEffect(() => {
-    if (active) {
+    setHidden(false);
+    if (!visiting) return;
+    useCanvasUIStore.getState().openLeftPanelView('federation');
+    if (!isExclusivePanelMode()) useGraphStore.getState().setLeftPanelExpanded(true);
+  }, [visiting]);
+
+  const pillUp = !!active && !hidden;
+  useEffect(() => {
+    if (pillUp) {
       setAnimationState((state) => (state === 'visible_steady' ? state : 'popping'));
     } else {
       setAnimationState((state) => (state ? 'shrinking' : state));
     }
-  }, [active]);
+  }, [pillUp]);
 
   useEffect(() => {
     if (!nudge) return undefined;
@@ -62,11 +75,6 @@ const ReadOnlyHost = () => {
     const timer = setTimeout(() => setNudged(false), NUDGE_MS);
     return () => clearTimeout(timer);
   }, [nudge]);
-
-  const close = useCallback(async () => {
-    const { default: universeBackend } = await import('../../../services/universeBackend.js');
-    await universeBackend.closeReadOnlyUniverse();
-  }, []);
 
   const makeCopy = useCallback(async () => {
     setCopying(true);
@@ -142,8 +150,8 @@ const ReadOnlyHost = () => {
                 Open in App
               </a>
             )}
-            <span data-testid="read-only-close">
-              <PanelIconButton icon={X} size={14} color="maroon" strokeWidth={2.5} onClick={close} title="Close" />
+            <span data-testid="read-only-hide">
+              <PanelIconButton icon={X} size={14} color="maroon" strokeWidth={2.5} onClick={() => setHidden(true)} title="Hide" />
             </span>
           </div>
         </div>

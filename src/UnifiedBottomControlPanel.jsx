@@ -471,7 +471,7 @@ const UnifiedBottomControlPanel = ({
   // takes them out of hit-testing entirely, so they never become a click target.
   const readOnly = useReadOnlyUniverse(selectReadOnlyOpen);
   const panelRef = useRef(null);
-  usePublishBottomPanelTop(panelRef, typeListOpen);
+  usePublishBottomPanelTop(panelRef, isVisible && shouldRender, typeListOpen);
   const handleButtonHaptic = useCallback((e) => {
     // Page-turn arrows step through a set, same as the ◀/▶ nav chevrons below.
     if (e.target?.closest?.('.piemenu-chevron')) {

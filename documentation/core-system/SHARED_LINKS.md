@@ -42,7 +42,7 @@ Three layers keep it read-only, all keyed on `src/store/readOnlyUniverse.js`:
 
 A refused edit, within a moment of the person's own gesture, nudges the bar (`nudgeReadOnlyUniverse`). Background writes don't.
 
-**What stays live.** The pill (`ReadOnlyHost`) sits over the TypeList and rides on top of whichever control panel is up (`store/bottomPanelTop.js`; the panel reports its own top edge). Editing buttons stay where they are, dimmed, in the node, connection and group pies (`pie/readOnlyButtons.js`), the context menus, the bottom panel (`data-view-only` marks what stays live) and the right panel. The pie and bottom panel lists name what only looks, so a new button dims by default.
+**What stays live.** The pill (`ReadOnlyHost`) sits over the TypeList and rides on top of whichever control panel is up (`store/bottomPanelTop.js`; the panel reports its own top edge). Its X hides it until the next visit and the visit goes on. A visit opens the left panel on Universes (the tab is ready but the panel stays shut where panels are exclusive), and the universe's row there is the way out. Editing buttons stay where they are, dimmed, in the node, connection and group pies (`pie/readOnlyButtons.js`), the context menus, the bottom panel (`data-view-only` marks what stays live) and the right panel. The pie and bottom panel lists name what only looks, so a new button dims by default.
 
 **Expanding is a flip-through.** Decompose opens the Thing's preview card and the arrows move between its definitions. Both are canvasUIStore state (`previewingNodeId`, `nodeDefinitionIndices`), so they change nothing and save nothing. Opening a definition as a Thing-group writes the document, so Decompose Further is dimmed.
 

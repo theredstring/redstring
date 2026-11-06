@@ -153,7 +153,7 @@ test('F50 a link opened while you work: yours is saved, the visit is never remem
 
   await pillSettled(page);
 
-  await page.getByTestId('read-only-close').getByRole('button').click();
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(page.getByTestId('read-only-bar')).toBeHidden();
   await expect.poll(async () => (await store(page)).names).toContain('Mine Now');
   expect((await store(page)).names).not.toContain('Vandalised');
@@ -228,7 +228,7 @@ test('F50 your own universe is untouched by a visit, and closing goes back to it
 
   await pillSettled(page);
 
-  await page.getByTestId('read-only-close').getByRole('button').click();
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
   await page.waitForURL((url) => url.pathname === '/' && url.search === '');
   await waitForCanvasReady(page);
   expect((await store(page)).names).toContain('Mine Now');
@@ -259,13 +259,7 @@ test('F50 the panel and the menu: read-only row, copy of your own, new universe 
   await expect(page.getByTestId('read-only-bar')).toBeVisible({ timeout: 30_000 });
   await waitForCanvasReady(page);
 
-  // The panel shows what you're viewing, and no storage to fill.
-  await page.evaluate(async () => {
-    const { default: useGraphStore } = await import('/src/store/graphStore.js');
-    const { default: ui } = await import('/src/store/canvasUIStore.js');
-    useGraphStore.getState().setLeftPanelExpanded(true);
-    ui.getState().openLeftPanelView('federation');
-  });
+  // A visit opens on Universes: what you're viewing, and no storage to fill.
   await expect(page.getByText('READ ONLY')).toBeInViewport();
   await expect(page.getByText('Nothing is saved. Make a copy to keep it and edit it.')).toBeVisible();
   await expect(page.getByText('Storage', { exact: true })).toBeHidden();
@@ -318,11 +312,13 @@ test('F50 read-only: Decompose is a flip-through that changes nothing; edits are
     useGraphStore.getState().createAndAssignGraphDefinitionWithoutActivation(proto.id);
     useGraphStore.getState().createAndAssignGraphDefinitionWithoutActivation(proto.id);
     readOnly.setReadOnlyUniverse(viewing);
+    useGraphStore.getState().setLeftPanelExpanded(false); // It opens over Alpha.
     const s = useGraphStore.getState();
     const instance = [...s.graphs.get(s.activeGraphId).instances.values()].find((i) => i.prototypeId === proto.id);
     return { id: instance.id, prototypeId: proto.id };
   });
 
+  await expect(page.getByText('READ ONLY')).not.toBeInViewport();
   await openPieMenu(page, found.id);
   await page.waitForTimeout(500);
   await page.screenshot({ path: test.info().outputPath('pie-read-only.png') });
@@ -464,8 +460,19 @@ test('F50 the pill sits over the TypeList and rides on top of a control panel', 
   await page.waitForTimeout(400);
   await expect.poll(clearance).toBeGreaterThan(8);
 
-  // Gone again: the pill comes back down.
+  // Gone again: the pill comes back down, starting while the panel is still leaving.
+  const startedDownWhileLeaving = page.evaluate(() => new Promise((resolve) => {
+    const wrapper = document.querySelector('.read-only-pill-wrapper');
+    const start = wrapper.style.bottom;
+    const check = () => {
+      if (!document.querySelector('.unified-bottom-panel')) return resolve(false);
+      if (document.querySelector('.unified-bottom-panel.exiting') && wrapper.style.bottom !== start) return resolve(true);
+      return requestAnimationFrame(check);
+    };
+    check();
+  }));
   await select([]);
+  expect(await startedDownWhileLeaving).toBe(true);
   await expect(panel).toHaveCount(0, { timeout: 5_000 });
   await expect.poll(async () => (await pill.boundingBox()).y, { timeout: 3_000 }).toBeGreaterThan(resting.y - 2);
 
@@ -493,4 +500,36 @@ test('F50 the bar fits a phone', async ({ page }) => {
   expect(box.x).toBeGreaterThanOrEqual(0);
   expect(box.x + box.width).toBeLessThanOrEqual(390);
   await page.screenshot({ path: test.info().outputPath('phone.png') });
+
+  // The panel doesn't cover the universe here, but it's on Universes when opened.
+  await expect(page.getByText('READ ONLY')).not.toBeInViewport();
+  await page.evaluate(async () => {
+    const { default: useGraphStore } = await import('/src/store/graphStore.js');
+    useGraphStore.getState().setLeftPanelExpanded(true);
+  });
+  await expect(page.getByText('READ ONLY')).toBeInViewport();
+});
+
+test('F50 the pill hides and the visit goes on; Universes is the way out', async ({ page }) => {
+  await hostFile(page);
+  await page.goto(LINK);
+  await expect(page.getByTestId('read-only-bar')).toBeVisible({ timeout: 30_000 });
+  await waitForCanvasReady(page);
+  await pillSettled(page);
+  const before = await store(page);
+
+  await page.getByTestId('read-only-hide').getByRole('button').click();
+  await expect(page.getByTestId('read-only-bar')).toBeHidden();
+  expect(new URL(page.url()).pathname).toBe('/open');
+  expect(await store(page)).toEqual(before);
+  await expect(page.getByText('READ ONLY')).toBeInViewport();
+
+  // Refused edits don't bring it back.
+  await renameAlpha(page, 'Vandalised');
+  await page.waitForTimeout(500);
+  await expect(page.getByTestId('read-only-bar')).toBeHidden();
+  expect(await store(page)).toEqual(before);
+
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.waitForURL((url) => url.pathname === '/' && url.search === '');
 });

@@ -23,15 +23,16 @@ export const useBottomPanelTop = () => useBottomPanelTops((state) => (
 ));
 
 /**
- * Reports a panel's top edge, as it mounts and whenever it changes size. It's
- * worked out from layout, not the screen position, so the panel's own entrance
- * and exit animations don't move what rides on it. `bottomChangedBy` is what can
- * move the panel's bottom edge without resizing it.
+ * Reports a panel's top edge while it's `showing`, as it appears and whenever it
+ * changes size. A panel on its way out has stopped showing, so what rides on it
+ * comes down as it goes. It's worked out from layout, not the screen position, so
+ * the panel's entrance animation doesn't move the rider. `bottomChangedBy` is what
+ * can move the panel's bottom edge without resizing it.
  */
-export function usePublishBottomPanelTop(ref, bottomChangedBy) {
+export function usePublishBottomPanelTop(ref, showing, bottomChangedBy) {
   useLayoutEffect(() => {
     const panel = ref.current;
-    if (!panel) return undefined;
+    if (!panel || !showing) return undefined;
     const measure = () => writeTop(panel, (parseFloat(getComputedStyle(panel).bottom) || 0) + panel.offsetHeight);
     measure();
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
@@ -40,5 +41,5 @@ export function usePublishBottomPanelTop(ref, bottomChangedBy) {
       observer?.disconnect();
       writeTop(panel, null);
     };
-  }, [ref, bottomChangedBy]);
+  }, [ref, showing, bottomChangedBy]);
 }
