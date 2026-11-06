@@ -52,7 +52,7 @@ test('F50 a link opens read-only: no onboarding, edits refused, nothing remember
   await page.goto(LINK);
   await expect(page.getByTestId('read-only-bar')).toBeVisible({ timeout: 30_000 });
   await waitForCanvasReady(page);
-  await expect(page.getByText('Read only', { exact: true })).toBeVisible();
+  await expect(page.getByText('Read Only', { exact: true })).toBeVisible();
   await expect(page.getByTestId('read-only-open-in-app')).toHaveAttribute('href', /^redstring:\/\/open\?url=/);
 
   const before = await store(page);
@@ -60,7 +60,7 @@ test('F50 a link opens read-only: no onboarding, edits refused, nothing remember
 
   // Background work (no one did anything) gets no answer.
   await page.waitForTimeout(2_000);
-  await expect(page.getByText('Read only', { exact: true })).toBeVisible();
+  await expect(page.getByText('Read Only', { exact: true })).toBeVisible();
 
   await renameAlpha(page, 'Vandalised');
   expect((await store(page)).names).toContain('Alpha');
@@ -171,7 +171,7 @@ test('F50 a Dropbox link, as Copy link gives it, opens from a shared link and th
   });
 
   await page.goto(`/open?url=${encodeURIComponent(COPIED)}`);
-  await expect(page.getByTestId('read-only-bar')).toContainText('Read only', { timeout: 30_000 });
+  await expect(page.getByTestId('read-only-bar')).toContainText('Read Only', { timeout: 30_000 });
   await waitForCanvasReady(page);
   expect(requested.filter((url) => url.includes('dropbox.com/'))).toEqual([]);
 
@@ -190,7 +190,7 @@ test('F50 a Dropbox link, as Copy link gives it, opens from a shared link and th
   await expect(page.getByText('Direct file URL detected')).toBeVisible();
   await page.getByRole('button', { name: 'Fetch & preview' }).click();
   await page.getByText("Just view (read only)").click();
-  await expect(page.getByTestId('read-only-bar')).toContainText('Read only', { timeout: 15_000 });
+  await expect(page.getByTestId('read-only-bar')).toContainText('Read Only', { timeout: 15_000 });
   expect(requested.filter((url) => url.includes('dropbox.com/'))).toEqual([]);
 });
 

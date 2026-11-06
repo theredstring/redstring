@@ -120,7 +120,7 @@ const ReadOnlyHost = () => {
           <div data-testid="read-only-bar" className={`read-only-pill${nudged ? ' is-nudged' : ''}`}>
             <span className="read-only-pill-status">
               <Eye size={16} strokeWidth={2.5} style={{ flexShrink: 0 }} />
-              {nudged ? 'Make a copy to edit' : 'Read only'}
+              {nudged ? 'Make a copy to edit' : 'Read Only'}
             </span>
             <button
               type="button"
