@@ -116,7 +116,7 @@ const ReadOnlyHost = () => {
           <div data-testid="read-only-bar" className="read-only-pill">
             <span className="read-only-pill-status">
               <Eye size={16} strokeWidth={2.5} style={{ flexShrink: 0 }} />
-              Read Only
+              <span className="read-only-pill-label">Read Only</span>
             </span>
             <button
               type="button"
