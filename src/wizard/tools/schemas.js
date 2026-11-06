@@ -177,7 +177,7 @@ export function getToolDefinitions(options = {}) {
                 properties: {
                     sourceId: { type: 'string', description: 'Name of the source node' },
                     targetId: { type: 'string', description: 'Name of the target node' },
-                    type: { type: 'string', description: 'Relationship type like "contains", "relates to"' },
+                    type: { type: 'string', description: 'Relationship type like "Orbits", "Parent Of"' },
                     targetGraphId: { type: 'string', description: 'Graph to target (default: active).' }
                 },
                 required: ['sourceId', 'targetId']
@@ -346,7 +346,7 @@ export function getToolDefinitions(options = {}) {
                             properties: {
                                 source: { type: 'string', description: 'Source node name' },
                                 target: { type: 'string', description: 'Target node name' },
-                                type: { type: 'string', description: 'New relationship type (e.g., "contains", "attached to")' },
+                                type: { type: 'string', description: 'New relationship type (e.g., "Orbits", "Attached To")' },
                                 directionality: {
                                     type: 'string',
                                     enum: ['unidirectional', 'bidirectional', 'none', 'reverse'],

@@ -25,12 +25,18 @@ import {
 import {
   anchorInfoFromGroupLayout,
   buildConnectionScene,
+  sceneAtZoom,
   settledConnectionGeometry,
 } from '../../utils/canvas/settledConnection.js';
+import { makeConnectionBoundsOf, routeFrom } from '../canvas/groups/connectionBounds.js';
 import { formulaObjectsIn, filterFormulaEdges } from '../canvas/formats/formula/formulaObjects.js';
 import { openGroupId } from '../../core/openDefinitions.js';
 
 const NO_FORMULAS = { objects: [], hiddenIds: new Set(), hiddenGroupIds: new Set(), standIns: new Map() };
+
+// How far a connection's ink reaches either side of its route, in world units at
+// connectionWidth 1: an arrowhead's half base (ARROW_POLYGON_POINTS) and half its outline.
+const CONNECTION_INK_REACH = 29;
 
 /**
  * The groups of a node's definition as its preview draws them. A node that
@@ -177,17 +183,17 @@ export function layoutWebPreview({ nodes, edges, groups, nodePrototypes, edgePro
 }
 
 /**
- * Every connection's resting geometry, with the z-slot it paints in.
+ * The connections a preview draws and the scene they are routed in, before it
+ * knows its zoom (fitting reads their routes, and the zoom comes from the fit).
  *
  * @param {object} layout - layoutWebPreview's result.
  * @param {Array} nodes
  * @param {Array} edges
  * @param {object} settings - connectionRoutingSettings(state).
- * @param {number} zoom - Screen px per world unit in the preview.
- * @returns {Array<{ edge, geometry, slot }>}
+ * @returns {null | { drawable: Array, scene: object }}
  */
-export function layoutPreviewConnections(layout, nodes, edges, settings, zoom) {
-  if (!layout || !edges?.length) return [];
+export function prepareConnections(layout, nodes, edges, settings) {
+  if (!layout || !edges?.length) return null;
   const { formulas } = layout;
   // None inside a formula; one from outside lands on its Thing's token, cut
   // along the formula's band (formats/replaced.js formatEndOf, on the canvas).
@@ -207,8 +213,55 @@ export function layoutPreviewConnections(layout, nodes, edges, settings, zoom) {
     sceneNodes = nodes.map(n => (formulas.standIns.has(n.id) && !n.isGroupAnchor ? { ...n, isGroupAnchor: true } : n));
   }
   const scene = buildConnectionScene({
-    nodes: sceneNodes, edges: drawable, dimsById: layout.dimsById, anchors, settings, zoom,
+    nodes: sceneNodes, edges: drawable, dimsById: layout.dimsById, anchors, settings,
   });
+  return { drawable, scene };
+}
+
+/**
+ * The box a preview has to fit: layoutWebPreview's bounds and every connection's
+ * route, the way a web is framed on the canvas (camera/backToCivilization.js). A
+ * Lombardi arc, a bundle's lane or a self-loop reaches past the Things it joins.
+ * Measured with no minimum bow, so it doesn't change with the zoom it decides: an
+ * arc too gentle to draw curved is drawn straight, inside the same box.
+ *
+ * @param {object} layout - layoutWebPreview's result.
+ * @param {object|null} prepared - prepareConnections' result.
+ * @returns {{ minX, minY, maxX, maxY }}
+ */
+export function previewFitBounds(layout, prepared) {
+  const { bounds } = layout;
+  if (!prepared) return bounds;
+  const { drawable, scene } = prepared;
+  const reach = makeConnectionBoundsOf({
+    edges: drawable,
+    nodeOf: id => scene.nodeById.get(id),
+    dimsOf: id => scene.dimsById.get(id),
+    geometryFor: scene.anchorGeometryFor,
+    route: routeFrom(scene),
+  })?.({ id: null, memberInstanceIds: [...scene.nodeById.keys()] });
+  if (!reach) return bounds;
+  const ink = CONNECTION_INK_REACH * (scene.connectionWidth ?? 1);
+  return {
+    minX: Math.min(bounds.minX, reach.minX - ink),
+    minY: Math.min(bounds.minY, reach.minY - ink),
+    maxX: Math.max(bounds.maxX, reach.maxX + ink),
+    maxY: Math.max(bounds.maxY, reach.maxY + ink),
+  };
+}
+
+/**
+ * Every prepared connection's resting geometry, with the z-slot it paints in.
+ *
+ * @param {object} layout - layoutWebPreview's result.
+ * @param {object|null} prepared - prepareConnections' result.
+ * @param {number} zoom - Screen px per world unit in the preview.
+ * @returns {Array<{ edge, geometry, slot }>}
+ */
+export function settleConnections(layout, prepared, zoom) {
+  if (!prepared) return [];
+  const { drawable } = prepared;
+  const scene = sceneAtZoom(prepared.scene, zoom);
   const connections = [];
   for (const edge of drawable) {
     const geometry = settledConnectionGeometry(edge, scene);
@@ -220,4 +273,9 @@ export function layoutPreviewConnections(layout, nodes, edges, settings, zoom) {
     });
   }
   return connections;
+}
+
+/** prepareConnections and settleConnections together, for a known zoom. */
+export function layoutPreviewConnections(layout, nodes, edges, settings, zoom) {
+  return settleConnections(layout, prepareConnections(layout, nodes, edges, settings), zoom);
 }

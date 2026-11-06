@@ -25,6 +25,13 @@
  * accepts edges exactly as a Thing does; excluding them made every node attached
  * only to a layer read as "orphaned", which pushed the model to add flat hub
  * edges to fix a problem that did not exist.
+ *
+ * ── Why connection names are checked ─────────────────────────────────────────
+ *
+ * A connection's name is a reusable Thing, but the model will pack a whole clause
+ * into one ("Runs On Adenosine Built On") and hide a Thing the web needed. There
+ * is no right word count, so a flagged name is a question, not a rule: the
+ * feedback says to leave it when the name really is the relation.
  */
 
 /** One node holding at least this share of all edge endpoints reads as a hub. */
@@ -39,6 +46,23 @@ const MONOTONE_MIN_EDGES = 4;
 
 /** At or above this many nodes, a graph with no layers is suspiciously flat. */
 const FLATNESS_NODE_THRESHOLD = 8;
+
+/** A connection name this long has usually swallowed a clause. */
+const LONG_CONNECTION_WORDS = 5;
+/** Shorter node names ("A", "In") match ordinary words in a connection name. */
+const MIN_NAMED_THING_LENGTH = 3;
+
+const nameWords = (name) => String(name || '').toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean).join(' ');
+
+/** Why this connection name looks overloaded, or null. `things` are in nameWords form. */
+function connectionNameFault(relation, things) {
+  const words = nameWords(relation);
+  const named = things.find(t => t.length >= MIN_NAMED_THING_LENGTH && t !== words && ` ${words} `.includes(` ${t} `));
+  if (named) return `names "${named}"`;
+  if (` ${words} `.includes(' and ') || relation.includes('&')) return 'joins two relations';
+  const count = words.split(' ').length;
+  return count >= LONG_CONNECTION_WORDS ? `runs ${count} words` : null;
+}
 
 /**
  * A layer marked `collapsed` renders on the canvas as an ordinary node — its web
@@ -91,6 +115,7 @@ export function analyzeGraphQuality(nodes, edges, opts = {}) {
       layerCount: layers.length,
       hub: null,
       dominantRelation: null,
+      overloadedConnections: [],
       feedback: 'No nodes to analyze.'
     };
   }
@@ -212,6 +237,19 @@ export function analyzeGraphQuality(nodes, edges, opts = {}) {
     }
   }
 
+  // ── Overloaded connection names ───────────────────────────────────────────
+  // An edge's own endpoints don't count: only a third Thing is hidden.
+  const thingNames = [...nameSet, ...existingSet].map(nameWords);
+  const connectionFaults = new Map();
+  for (const edge of (edges || [])) {
+    const rel = String(edge.type || edge.definitionNode?.name || '').trim();
+    if (!rel || connectionFaults.has(rel)) continue;
+    const ends = [nameWords(edge.source), nameWords(edge.target)];
+    const fault = connectionNameFault(rel, thingNames.filter(t => !ends.includes(t)));
+    if (fault) connectionFaults.set(rel, fault);
+  }
+  const overloadedConnections = [...connectionFaults].map(([name, fault]) => ({ name, fault }));
+
   // ── Connectivity ──────────────────────────────────────────────────────────
   const degreeValues = Array.from(degrees.values());
   const totalDegree = degreeValues.reduce((sum, d) => sum + d, 0);
@@ -268,7 +306,14 @@ export function analyzeGraphQuality(nodes, edges, opts = {}) {
     issues.push(
       `REPETITION: "${dominantRelation.type}" accounts for ${dominantRelation.share}% of connections (${dominantRelation.count}). `
       + 'One relation repeated across a whole graph is usually containment in disguise — that belongs in a layer. '
-      + 'Otherwise give each pair the relation that actually describes it.'
+      + 'Otherwise give each pair the relation that actually describes it, in as few words as it takes.'
+    );
+  }
+  if (overloadedConnections.length > 0) {
+    issues.push(
+      `CONNECTION NAMES: ${overloadedConnections.map(c => `"${c.name}" ${c.fault}`).join('; ')}. `
+      + 'Say only the relation: what a name invokes is a Thing, so add it and connect through it. '
+      + 'Leave a name that really is the relation ("Parent Of").'
     );
   }
   if (avgConnectionsPerNode < 1.5 && allNodes.length > 2 && !hub) {
@@ -328,6 +373,7 @@ export function analyzeGraphQuality(nodes, edges, opts = {}) {
     decomposedLayerCount: layers.filter(l => l.display !== 'collapsed').length,
     hub,
     dominantRelation,
+    overloadedConnections,
     feedback
   };
 }

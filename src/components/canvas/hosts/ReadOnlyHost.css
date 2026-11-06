@@ -3,7 +3,6 @@
 
 .read-only-pill-wrapper {
   position: fixed;
-  z-index: 1000;
   width: max-content;
   max-width: calc(100vw - 24px);
   opacity: 0;

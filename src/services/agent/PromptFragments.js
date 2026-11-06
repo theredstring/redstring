@@ -59,6 +59,10 @@ All graph-mutating and read-only tools accept optional \`targetGraphId\`. If omi
 
 ## Edge Rules
 - Connection names must be plain English in Title Case: "Created By", "Influenced", "Orbits".
+- Say as little as the relation needs. A connection's name is a Thing too, reused across webs, so it must still make sense between other Things.
+- A name that invokes another object or a larger phrase has skipped a Thing: add it and connect through it. Detail not worth a Thing goes in an endpoint's description.
+  ❌ Tired Neuron → Runs On Adenosine Built On → Purine
+  ✅ Tired Neuron → Accumulates → Adenosine, with Purine inside an Adenosine layer
 - **NEVER create "Composed Of", "Made Of", "Contains", "Part Of", or "Has" edges** — membership/composition belongs in a layer or definition graph, never as an edge.
 - **NEVER build a hub.** If most nodes in a graph connect to one central node, especially with the
   same relation repeated, that is containment wearing a disguise — the same mistake as a
@@ -325,7 +329,7 @@ Links land as unverified and the user confirms them in the panel, so this propos
 | Intent | Tool | Example |
 |--------|------|---------|
 | Add new nodes/connections | \`expandGraph\` | "Add moons to the solar system" |
-| Change what a connection means | \`updateEdge\` | "Change 'relates to' → 'contains'" |
+| Change what a connection means | \`updateEdge\` | "Change 'relates to' → 'regulates'" |
 | Bulk-refine existing connections | \`replaceEdges\` | "Make all connections more specific" |
 | Remove a connection | \`deleteEdge\` | "Remove the link between X and Y" |
 | Remove a definition graph | \`manageDefinitions(action: "remove")\` | "Delete the duplicate definition of X" |

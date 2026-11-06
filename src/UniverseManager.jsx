@@ -42,6 +42,7 @@ import StatusBanner from './components/StatusBanner.jsx';
 import universeBackend from './services/universeBackend.js';
 import universeBackendBridge from './services/universeBackendBridge.js';
 import repoDiscoveryCache from './services/repoDiscoveryCache.js';
+import { readUniverseUpload } from './services/universeUpload.js';
 import saveCoordinator from './services/SaveCoordinator';
 import { settleUnsavedChanges, hasChangesOnlyASaveKeeps } from './components/canvas/dialogs/unsavedChanges.js';
 import PanelIconButton from './components/shared/PanelIconButton.jsx';
@@ -2752,6 +2753,88 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
     });
   };
 
+  // A file that can't be uploaded throws back to the modal, which stays open and
+  // says why. Nothing has changed at that point; the name dialog is the commit.
+  const handleUploadUniverseFile = async (repo, file) => {
+    const owner = repo.owner?.login || repo.owner?.name || repo.owner;
+    const repoName = repo.name;
+
+    if (!owner || !repoName) {
+      throw new Error('Repository is missing owner/name metadata.');
+    }
+
+    const upload = await readUniverseUpload(file);
+
+    setShowRepositoryManager(false);
+    setRepositoryTargetSlug(null);
+    setRepositoryIntent(null);
+
+    setConfirmDialog({
+      title: 'Upload Universe File',
+      message: `Upload ${file.name} to ${owner}/${repoName} as a new universe.`,
+      details: `${upload.webCount} webs, ${upload.thingCount} things`,
+      variant: 'default',
+      confirmLabel: 'Upload',
+      cancelLabel: 'Cancel',
+      titleColor: theme.accent.secondary,
+      inputField: {
+        placeholder: 'Universe name',
+        defaultValue: buildUniqueUniverseName(upload.name, serviceState.universes),
+        label: 'Universe Name'
+      },
+      onConfirm: async (rawName) => {
+        const universeName = buildUniqueUniverseName((rawName || '').trim() || upload.name, serviceState.universes);
+        try {
+          setLoading(true);
+          setIsConnecting(true);
+          setConnectingMessage('Uploading universe file...');
+
+          if (!hasOAuth && !hasApp) {
+            throw new Error('Connect GitHub before uploading a universe file to a repository.');
+          }
+
+          const { gitError } = await universeBackend.addUploadedUniverseToRepository(upload.storeState, universeName, {
+            user: owner,
+            repo: repoName,
+            authMethod: dataAuthMethod || 'oauth'
+          });
+
+          const repoKey = `${owner}/${repoName}`;
+          const alreadyManaged = managedRepositories.some(r =>
+            `${r.owner?.login || r.owner}/${r.name}` === repoKey
+          );
+          if (!alreadyManaged) {
+            const newList = [...managedRepositories, repo];
+            setManagedRepositories(newList);
+            localStorage.setItem(getStorageKey('redstring-managed-repositories'), JSON.stringify(newList));
+          }
+
+          if (gitError) {
+            setError(`"${universeName}" is open here, but it didn't reach ${repoKey}: ${gitError}`);
+          } else {
+            setSyncStatus({ type: 'success', message: `Uploaded "${universeName}" to @${repoKey}` });
+            // So the repository's list shows the new file next time it's opened.
+            universeManagerService.discoverUniverses({
+              user: owner,
+              repo: repoName,
+              authMethod: dataAuthMethod || 'oauth'
+            }).catch((scanErr) => umWarn('[UniverseManager] Rescan after upload failed:', scanErr));
+          }
+          scrollPanelToTop();
+          await refreshState();
+        } catch (uploadErr) {
+          umError('[UniverseManager] Upload universe file failed:', uploadErr);
+          setError(`Failed to upload universe: ${uploadErr.message}`);
+          await refreshState();
+        } finally {
+          setLoading(false);
+          setIsConnecting(false);
+          setConnectingMessage(null);
+        }
+      }
+    });
+  };
+
   const handleSetMainRepository = (repo) => {
     const repoKey = `${repo.owner?.login || repo.owner}/${repo.name}`;
     const updatedList = managedRepositories.map(r => {
@@ -4382,6 +4465,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         onImportDiscovered={handleImportDiscovered}
         onSyncDiscovered={handleLinkDiscovered}
         onCreateUniverseFile={handleCreateNewUniverseFile}
+        onUploadUniverseFile={handleUploadUniverseFile}
       />
 
       <ExportUniverseModal

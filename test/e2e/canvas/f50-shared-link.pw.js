@@ -287,7 +287,7 @@ test('F50 the panel and the menu: read-only row, copy of your own, new universe 
 
   // A visit opens on Universes: what you're viewing, and no storage to fill.
   await expect(page.getByText('READ ONLY', { exact: true })).toBeInViewport();
-  await expect(page.getByText('Nothing is saved. Make a copy to keep it and edit it.')).toBeVisible();
+  await expect(page.getByText('Nothing is saved. Make a copy to store and edit.')).toBeVisible();
   await expect(page.getByText('Storage', { exact: true })).toBeHidden();
   await page.screenshot({ path: test.info().outputPath('panel-read-only.png') });
 

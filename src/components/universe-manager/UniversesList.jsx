@@ -7,6 +7,7 @@ import { pillRow, slotLayout } from './shared/slotLayout.js';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
 import SourceOfTruthPill from './shared/SourceOfTruthPill.jsx';
 import { isCapacitor } from '../../utils/capacitorAdapter.js';
+import { hasFileSystemAccess, isElectron } from '../../utils/fileAccessAdapter.js';
 import { showContextMenuForElement } from '../GlobalContextMenu.jsx';
 import { showNotice } from '../shared/appDialogs.js';
 import { buildSharedLink, isInstalledApp, openInApp } from '../../services/sharedLink.js';
@@ -74,6 +75,11 @@ const UniversesList = ({
   isMobile = false
 }) => {
   const theme = useTheme();
+  // Whether this browser can hold a universe in a file at all: Firefox, Safari and
+  // most mobile browsers have no save picker. Phones stay out even where one exists,
+  // since the backend runs them Git-only. The iOS app is also deviceType "mobile"
+  // but has real native file access through its own Documents container.
+  const canUseLocalFiles = isCapacitor() || isElectron() || (!isMobile && hasFileSystemAccess());
   // No collapsing - active universe is always expanded, others show compact view
 
   const [copiedSlug, setCopiedSlug] = useState(null); // Slug whose public link was just copied (for icon feedback)
@@ -261,7 +267,7 @@ const UniversesList = ({
   ]);
 
   const openNewMenu = (e) => showContextMenuForElement(e.currentTarget, [
-    { label: 'New from Local File', icon: <FileText size={14} />, action: handleNewFromFileClick },
+    ...(canUseLocalFiles ? [{ label: 'New from Local File', icon: <FileText size={14} />, action: handleNewFromFileClick }] : []),
     { label: 'New from Repository', icon: <Github size={14} />, action: handleNewFromRepoClick },
     { label: 'New from Ontology...', icon: <Library size={14} />, action: handleNewFromOntologyClick },
   ], { align: isHeaderSlim ? 'left' : 'right' });
@@ -854,7 +860,7 @@ const UniversesList = ({
                   {isActive && isReadOnly && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingLeft: isVerySlim ? 0 : (isSlim ? 12 : 24) }}>
                       <div style={{ fontSize: '0.75rem', color: theme.canvas.textSecondary }}>
-                        Nothing is saved. Make a copy to keep it and edit it.
+                        Nothing is saved. Make a copy to store and edit.
                       </div>
                       <div style={{ fontSize: '0.65rem', color: theme.canvas.textSecondary, overflowWrap: 'anywhere' }}>
                         {universe.raw?.readOnly?.sourceUrl}
@@ -1119,14 +1125,11 @@ const UniversesList = ({
                             </div>
                           )}
 
-                          {/* Local File Slot — hidden on mobile BROWSERS, where the
-                              File System Access API genuinely doesn't exist. The
-                              iOS app is also deviceType "mobile" but has real
-                              native file access through its own Documents
-                              container, so hiding it there meant local files were
+                          {/* Local File Slot — hidden where the browser can't use
+                              one. Hiding it on the iOS app meant local files were
                               written, tracked and autosaved while the slot they
                               belong to never appeared in the UI. */}
-                          {(!isMobile || isCapacitor()) && (universe.raw?.localFile?.enabled || universe.raw?.localFile?.pendingConnect ? (
+                          {canUseLocalFiles && (universe.raw?.localFile?.enabled || universe.raw?.localFile?.pendingConnect ? (
                             <div
                               style={{
                                 padding: 8,

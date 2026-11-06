@@ -3,6 +3,8 @@ export const NODE_HEIGHT = 100;
 export const LONG_PRESS_DURATION = 250;
 export const LERP_SPEED = 0.8;
 export const HEADER_HEIGHT = 50;
+// The canvas's own pills: over the side panels (10000-10003), under the header's menus.
+export const OVER_PANELS_Z_INDEX = 10500;
 // At or below this viewport width, opening one panel closes the other and the
 // header consolidates its inline action buttons into a single hamburger menu.
 export const EXCLUSIVE_PANEL_MODE_THRESHOLD = 1100;

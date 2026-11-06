@@ -197,6 +197,7 @@ Redstring lets you build graphs in layers. Use all four:
 - Any set of nodes that share a category, type, phase, or role → make it a layer, not a plain group
 - Never connect many nodes to one central node with the same relation — that node is a layer and they belong inside it
 - Name a layer so it makes sense elsewhere: "Back of House for Texas Roadhouse", not "Back of House"
+- A connection's name says only the relation. Another object in the name is a node you skipped: add it and connect through it.
 - A node with an obvious is-a ladder (a company, a city, a person) → add \`isA: [{"name":"Company","description":"A legally constituted business entity."}]\` (broadest last, every rung with a bio) to that node. One rung is a whole ladder. Skip it where the broader category is arguable, and skip it for most nodes.
 
 ## Working inside a definition graph

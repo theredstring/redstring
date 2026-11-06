@@ -131,8 +131,12 @@ export function buildConnectionScene({ nodes, edges, dimsById, anchors = new Map
     cleanLaneOffsets,
     lombardiTangents,
     edgeCurveInfo: computeEdgeCurveInfo({ edges }),
+    anchorGeometryFor,
   };
 }
+
+/** The same scene at another zoom: only Lombardi's visible-bow floor reads it. */
+export const sceneAtZoom = (scene, zoom) => ({ ...scene, lombardiMinBow: connectionCurveMinBow(zoom) });
 
 /** A connection's colour: its type's, else its destination's (renderConnectionEdge getEdgeColor). */
 export function connectionColor(edge, destNode, nodePrototypes, edgePrototypes) {

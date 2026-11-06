@@ -64,13 +64,14 @@
   border-radius: 20px;
   padding: 8px 16px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
-  transition: all 0.2s ease;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
 }
 
+/* The same hover as every other pill: PanelIconButton's, from the pie menu. */
 .back-to-civilization-pill:hover {
-  background-color: #D0CACA;
-  transform: scale(1.05);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+  border-color: transparent;
+  box-shadow: 0 0 0 3px maroon;
+  transform: scale(1.04);
 }
 
 .back-to-civilization-text {

@@ -25,6 +25,7 @@ import { countUserPrototypes, isRecognizedShape, isEffectivelyEmpty } from '../f
 import { checkDestinationBeforeEmptyWrite, isConfirmedNotFound } from './emptyWriteGuard.js';
 import { decideSlotConflict } from './slotConflictDecision.js';
 import repoDiscoveryCache from './repoDiscoveryCache.js';
+import { freeRepoTarget } from './universeUpload.js';
 import { noteUniverseSaved, backUpNow, readBackup } from './universeBackups.js';
 import {
   createUniverseConfigFromDiscovered,
@@ -3209,41 +3210,14 @@ class UniverseBackend {
   /**
    * Switch active universe
    */
-  async switchActiveUniverse(slug, options = {}) {
-    if (!this.isInitialized) {
-      await this.initialize();
-    }
-
-    umLog(`[UniverseBackend] Switching to universe: ${slug}`);
-
-    const resolved = this.resolveUniverseEntry(slug);
-    if (!resolved) {
-      throw new Error(`Universe not found: ${slug}`);
-    }
-    const { key, universe } = resolved;
-
-    if (this.activeUniverseSlug === key) {
-      return { universe, storeState: null }; // Already active
-    }
-
-    // Your universes haven't been read on a page opened from a shared link.
-    // Going to one is an ordinary launch, with this universe as the active one.
-    if (this.bootVisit && !universe.readOnly) {
-      this.bootVisit = false;
-      this.activeUniverseSlug = key;
-      this.saveToStorage();
-      clearSharedLinkFromAddress();
-      window.location.reload();
-      return { universe, storeState: null };
-    }
-
-    // A read-only universe has nothing to save, and nothing to come back to.
-    const leavingReadOnly = this.getActiveUniverse()?.readOnly ? this.activeUniverseSlug : null;
-    if (leavingReadOnly) options = { ...options, saveCurrent: false };
-
+  /**
+   * Everything owed to the active universe before the store stops holding it:
+   * its save, and the timers and caches still holding its data.
+   */
+  async _releaseOutgoingUniverse({ saveCurrent } = {}) {
     // Save current universe before switching (unless explicitly disabled)
     // Check if active universe actually exists before trying to save (it might have been deleted)
-    if (options.saveCurrent !== false && this.activeUniverseSlug && this.universes.has(this.activeUniverseSlug)) {
+    if (saveCurrent !== false && this.activeUniverseSlug && this.universes.has(this.activeUniverseSlug)) {
       try {
         const saved = await this.saveActiveUniverse();
         // A refused save returns its reasons rather than throwing. The pending
@@ -3290,6 +3264,41 @@ class UniverseBackend {
     } catch (e) {
       umWarn('[UniverseBackend] Could not release image caches before switch:', e);
     }
+  }
+
+  async switchActiveUniverse(slug, options = {}) {
+    if (!this.isInitialized) {
+      await this.initialize();
+    }
+
+    umLog(`[UniverseBackend] Switching to universe: ${slug}`);
+
+    const resolved = this.resolveUniverseEntry(slug);
+    if (!resolved) {
+      throw new Error(`Universe not found: ${slug}`);
+    }
+    const { key, universe } = resolved;
+
+    if (this.activeUniverseSlug === key) {
+      return { universe, storeState: null }; // Already active
+    }
+
+    // Your universes haven't been read on a page opened from a shared link.
+    // Going to one is an ordinary launch, with this universe as the active one.
+    if (this.bootVisit && !universe.readOnly) {
+      this.bootVisit = false;
+      this.activeUniverseSlug = key;
+      this.saveToStorage();
+      clearSharedLinkFromAddress();
+      window.location.reload();
+      return { universe, storeState: null };
+    }
+
+    // A read-only universe has nothing to save, and nothing to come back to.
+    const leavingReadOnly = this.getActiveUniverse()?.readOnly ? this.activeUniverseSlug : null;
+    if (leavingReadOnly) options = { ...options, saveCurrent: false };
+
+    await this._releaseOutgoingUniverse(options);
 
     // CRITICAL: Cancel any pending background loads to prevent overwriting
     this.pendingBackgroundLoadId = null;
@@ -8521,6 +8530,69 @@ class UniverseBackend {
 
     this.notifyStatus('success', `Opened ${fileName} as a new universe`);
     return { slug, nodeCount };
+  }
+
+  /**
+   * Put an uploaded universe in a repository, where a new universe's file goes,
+   * and open it. Always a NEW universe: nothing already here is replaced, and
+   * the file that lands is an export of the state, which readUniverseUpload has
+   * already cleaned.
+   *
+   * forceSave answers success when any leg saved, so whether the repository got
+   * it comes back separately as `gitError`. The universe stays open either way:
+   * by then it's the only copy of what was uploaded.
+   *
+   * @param {Object} storeState - From readUniverseUpload.
+   * @param {string} name - The new universe's name.
+   * @param {{ user: string, repo: string, authMethod?: string }} repoConfig
+   * @returns {Promise<{ slug: string, gitError: string|null }>}
+   */
+  async addUploadedUniverseToRepository(storeState, name, { user, repo, authMethod = 'oauth' }) {
+    await this.initialize();
+    if (!this.storeOperations?.loadUniverseFromFile) {
+      throw new Error('Store operations not initialized');
+    }
+
+    // First, while a refusal still changes nothing here.
+    const inRepo = await this.discoverUniversesInRepository({ type: 'github', user, repo, authMethod }, { silent: true });
+
+    // createUniverse takes the store over without any of this. A debounced save
+    // left running would write the outgoing universe into the new file.
+    await this._releaseOutgoingUniverse({ saveCurrent: !this.getActiveUniverse()?.readOnly });
+
+    const created = await this.createUniverse(name, {
+      enableGit: true,
+      enableLocal: false,
+      sourceOfTruth: SOURCE_OF_TRUTH.GIT
+    });
+    const slug = created?.slug;
+    if (!slug) throw new Error('Could not create a universe for the uploaded file');
+
+    const loaded = this.storeOperations.loadUniverseFromFile({ ...storeState, _universeSlug: slug });
+    if (loaded === false) throw new Error('The uploaded file could not be opened');
+
+    const { folder, file } = freeRepoTarget(slug, inRepo);
+    await this.updateUniverse(slug, {
+      gitRepo: {
+        ...created.gitRepo,
+        enabled: true,
+        linkedRepo: { type: 'github', user, repo, authMethod },
+        universeFolder: folder,
+        universeFile: file
+      },
+      sources: [{
+        id: `src_${Date.now().toString(36)}`,
+        type: 'github',
+        user,
+        repo,
+        name: `@${user}/${repo}`,
+        addedAt: new Date().toISOString()
+      }]
+    });
+
+    const saved = await this.forceSave(slug);
+    const git = saved?.savedTo?.git;
+    return { slug, gitError: git?.success ? null : (git?.error || 'nothing was written') };
   }
 
   /**

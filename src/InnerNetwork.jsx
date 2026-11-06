@@ -14,7 +14,7 @@ import useGraphStore from "./store/graphStore.js";
 import useFormatsStore, { selectStandard } from './components/canvas/formats/formatsStore.js';
 import { GROUP_LAYOUT_CONSTANTS } from './services/groupLayout.js';
 import { connectionColor, connectionRoutingSettings, CONNECTION_STROKE_BASE } from './utils/canvas/settledConnection.js';
-import { layoutWebPreview, layoutPreviewConnections } from './components/webPreview/webPreviewLayout.js';
+import { layoutWebPreview, prepareConnections, previewFitBounds, settleConnections } from './components/webPreview/webPreviewLayout.js';
 import PreviewConnection from './components/webPreview/PreviewConnection.jsx';
 import PreviewFormula from './components/webPreview/PreviewFormula.jsx';
 import { safeImageSrc } from './utils/safeUrl.js';
@@ -87,7 +87,9 @@ const InnerNetwork = ({ nodes, edges, groups = null, width, height, padding }) =
       display: { standard, namesShown, flipped },
     });
     if (!web) return null;
-    const { minX, minY, maxX, maxY } = web.bounds;
+    const settings = connectionRoutingSettings({ autoLayoutSettings, textSettings });
+    const prepared = prepareConnections(web, nodes, edges, settings);
+    const { minX, minY, maxX, maxY } = previewFitBounds(web, prepared);
 
     // Fit: scale the padded bounds into the box and centre them.
     const baseNetworkWidth = Math.max(maxX - minX, NODE_WIDTH * nodeScaleGlobal);
@@ -102,8 +104,7 @@ const InnerNetwork = ({ nodes, edges, groups = null, width, height, padding }) =
     const translateY = padding + (availableHeight - networkHeight * scale) / 2 - ((minY - BOUNDING_BOX_PADDING) * scale);
 
     // Connections in the user's connection style, exactly as the canvas draws them.
-    const settings = connectionRoutingSettings({ autoLayoutSettings, textSettings });
-    const connections = layoutPreviewConnections(web, nodes, edges, settings, scale);
+    const connections = settleConnections(web, prepared, scale);
     const clipRegion = {
       x: minX - networkWidth, y: minY - networkHeight,
       w: networkWidth * 3, h: networkHeight * 3,

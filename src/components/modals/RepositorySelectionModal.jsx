@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Github,
   Search,
@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import Modal from '../shared/Modal.jsx';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
-import { DialogButton } from '../shared/Dialog.jsx';
+import { DialogButton, DialogCheckbox, DialogInput } from '../shared/Dialog.jsx';
 import { useTheme } from '../../hooks/useTheme.js';
 import { persistentAuth } from '../../services/persistentAuth.js';
 import { listUserRepos, createRepository } from '../../services/githubRepoService.js';
@@ -41,9 +41,12 @@ const RepositorySelectionModal = ({
   intent = null,
   onImportDiscovered,
   onSyncDiscovered,
-  onCreateUniverseFile
+  onCreateUniverseFile,
+  onUploadUniverseFile
 }) => {
   const theme = useTheme();
+  const uploadInputRef = useRef(null);
+  const uploadRepoRef = useRef(null);
   const [repositories, setRepositories] = useState([]);
 
   const [loading, setLoading] = useState(false);
@@ -182,6 +185,19 @@ const RepositorySelectionModal = ({
       setCreateRepoError(err.message || 'Repository creation failed.');
     } finally {
       setCreatingRepo(false);
+    }
+  };
+
+  const handleUploadPicked = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // so picking the same file again still fires
+    if (!file || !uploadRepoRef.current) return;
+
+    setError(null);
+    try {
+      await onUploadUniverseFile(uploadRepoRef.current, file);
+    } catch (err) {
+      setError(err.message);
     }
   };
 
@@ -415,57 +431,36 @@ const RepositorySelectionModal = ({
 
         {showCreateRepo && (
           <div style={{
-            marginTop: '10px',
-            padding: '10px',
-            border: `1px solid ${theme.canvas.border}`,
-            borderRadius: '6px',
-            backgroundColor: theme.canvas.hover,
+            marginTop: '14px',
             display: 'flex',
             flexDirection: 'column',
-            gap: '8px'
+            gap: '10px'
           }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <label style={{ fontSize: '0.7rem', fontWeight: 600, color: theme.canvas.textPrimary }}>
+              <label style={{ fontSize: '0.8rem', fontWeight: 600, color: theme.canvas.textPrimary }}>
                 Repository Name
               </label>
-              <input
+              <DialogInput
                 type="text"
                 value={newRepoName}
                 onChange={(e) => setNewRepoName(e.target.value)}
                 placeholder="my-new-repo"
-                style={{
-                  padding: '6px 8px',
-                  border: `1px solid ${theme.canvas.border}`,
-                   borderRadius: '4px',
-                   fontSize: '0.75rem',
-                   backgroundColor: theme.canvas.bg,
-                   color: theme.canvas.textPrimary
-                }}
               />
             </div>
 
-            <label style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              fontSize: '0.7rem',
-              color: theme.canvas.textPrimary
-            }}>
-              <input
-                type="checkbox"
-                checked={newRepoPrivate}
-                onChange={(e) => setNewRepoPrivate(e.target.checked)}
-              />
-              Private repository
-            </label>
+            <DialogCheckbox
+              checked={newRepoPrivate}
+              onChange={setNewRepoPrivate}
+              label="Private repository"
+              style={{ justifyContent: 'flex-start' }}
+            />
 
             {createRepoError && (
               <div style={{
-                fontSize: '0.7rem',
-                color: theme.alert.error.text,
-                backgroundColor: theme.alert.error.bg,
-                padding: '6px 8px',
-                borderRadius: '4px'
+                fontSize: '0.78rem',
+                lineHeight: 1.4,
+                color: theme.canvas.brandText,
+                overflowWrap: 'anywhere'
               }}>
                 {createRepoError}
               </div>
@@ -554,8 +549,8 @@ const RepositorySelectionModal = ({
             // Cache first: a repo scanned anywhere else in the app already has
             // its list (and counts) here, with no request of our own.
             const cacheEntry = repoDiscoveryCache.getRepoEntry(repoKeyOf(repo));
-            const scanned = discoveredUniverses[repo.id]
-              ?? (cacheEntry.lastScanned ? cacheEntry.items : undefined);
+            const scanned = (cacheEntry.lastScanned ? cacheEntry.items : undefined)
+              ?? discoveredUniverses[repo.id];
             const universes = scanned || [];
             const isScanning = scanned === undefined;
             const hasUniverses = universes.length > 0;
@@ -751,18 +746,33 @@ const RepositorySelectionModal = ({
                           No universes found in this repository
                         </div>
                       )}
-                      {onCreateUniverseFile && (
-                        <div style={{ display: 'flex', justifyContent: 'center' }}>
-                          <DialogButton
-                            icon={FilePlus}
-                            label="New Universe File"
-                            title="Create a new .redstring file in this repository"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onCreateUniverseFile(repo);
-                            }}
-                            style={{ minHeight: 28, padding: '4px 12px' }}
-                          />
+                      {(onCreateUniverseFile || onUploadUniverseFile) && (
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+                          {onCreateUniverseFile && (
+                            <DialogButton
+                              icon={FilePlus}
+                              label="New Universe File"
+                              title="Create a new .redstring file in this repository"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onCreateUniverseFile(repo);
+                              }}
+                              style={{ minHeight: 28, padding: '4px 12px' }}
+                            />
+                          )}
+                          {onUploadUniverseFile && (
+                            <DialogButton
+                              icon={Upload}
+                              label="Upload Universe File"
+                              title="Upload a .redstring file to this repository"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                uploadRepoRef.current = repo;
+                                uploadInputRef.current?.click();
+                              }}
+                              style={{ minHeight: 28, padding: '4px 12px' }}
+                            />
+                          )}
                         </div>
                       )}
                       {universes.map((universe, index) => {
@@ -856,6 +866,16 @@ const RepositorySelectionModal = ({
         )}
       </div>
       </div>
+
+      {onUploadUniverseFile && (
+        <input
+          ref={uploadInputRef}
+          type="file"
+          accept=".redstring"
+          style={{ display: 'none' }}
+          onChange={handleUploadPicked}
+        />
+      )}
 
       <style>
         {`

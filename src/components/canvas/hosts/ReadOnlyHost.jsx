@@ -11,7 +11,7 @@ import useReadOnlyUniverse, { setReadOnlyFailure } from '../../../store/readOnly
 import { useBottomPanelTop } from '../../../store/bottomPanelTop.js';
 import { useTheme } from '../../../hooks/useTheme.js';
 import { useViewportBounds } from '../../../hooks/useViewportBounds';
-import { DEFAULT_ZOOM_BAR_POSITION, isExclusivePanelMode } from '../../../constants';
+import { DEFAULT_ZOOM_BAR_POSITION, OVER_PANELS_Z_INDEX, isExclusivePanelMode } from '../../../constants';
 import { buildAppLink, clearSharedLinkFromAddress, isInstalledApp } from '../../../services/sharedLink.js';
 import { makeCopyOfOpenUniverse } from '../actions/makeCopy.js';
 
@@ -86,10 +86,9 @@ const ReadOnlyHost = () => {
     }
   }, [failure]);
 
-  // Centred in the usable canvas, as the other pills are: on top of a control
-  // panel when one is up, otherwise just over the TypeList (and the zoom bar when
-  // it shares the strip).
-  const centerX = viewportBounds.x + viewportBounds.width / 2;
+  // The middle of the window, as the other pills are: on top of a control panel
+  // when one is up, otherwise just over the TypeList (and the zoom bar when it
+  // shares the strip).
   const bottom = bottomPanelTop !== null
     ? bottomPanelTop + PANEL_GAP
     : viewportBounds.bottomReserved + BOTTOM_GAP + (zoomBarBelow ? ZOOM_BAR_HEIGHT + 8 : 0);
@@ -107,7 +106,7 @@ const ReadOnlyHost = () => {
         <div
           ref={wrapperRef}
           className={wrapperClass}
-          style={{ left: centerX, bottom }}
+          style={{ left: '50%', bottom, zIndex: OVER_PANELS_Z_INDEX }}
           onAnimationEnd={(e) => {
             if (e.target !== wrapperRef.current) return;
             if (animationState === 'popping') setAnimationState('visible_steady');

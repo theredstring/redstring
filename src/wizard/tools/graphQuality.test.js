@@ -301,3 +301,54 @@ describe('analyzeGraphQuality with nodes already in the graph', () => {
     expect(report.orphanedNodes).toEqual(['Sun']);
   });
 });
+
+describe('analyzeGraphQuality — connection names', () => {
+  const faults = (nodes, edges, opts) =>
+    analyzeGraphQuality(nodes.map(node), edges, opts).overloadedConnections.map(c => c.name);
+
+  it('flags the clause that started this: a name carrying another Thing', () => {
+    const report = analyzeGraphQuality(
+      ['Tired Neuron', 'Adenosine', 'Purine'].map(node),
+      [{ source: 'Tired Neuron', target: 'Purine', type: 'Runs On Adenosine Built On' }]
+    );
+    expect(report.overloadedConnections).toEqual([{ name: 'Runs On Adenosine Built On', fault: 'names "adenosine"' }]);
+    expect(report.feedback).toContain('CONNECTION NAMES');
+  });
+
+  it('flags a long name even when the Thing it hides is not in the web', () => {
+    expect(faults(['Methyl Group', 'Purine'], [
+      { source: 'Methyl Group', target: 'Purine', type: 'Bonded To Ring Nitrogens Of' }
+    ])).toEqual(['Bonded To Ring Nitrogens Of']);
+  });
+
+  it('flags two relations joined into one name', () => {
+    expect(faults(['Adenosine', 'Receptor'], [
+      { source: 'Adenosine', target: 'Receptor', definitionNode: { name: 'Binds And Activates' } }
+    ])).toEqual(['Binds And Activates']);
+  });
+
+  it('sees Things already in the graph', () => {
+    expect(faults(['ATP'], [
+      { source: 'ATP', target: 'Synapse', type: 'Leaves Adenosine In' }
+    ], { existingNames: ['Adenosine', 'Synapse'] })).toEqual(['Leaves Adenosine In']);
+  });
+
+  it('has no word limit short of a clause', () => {
+    expect(faults(['Lever', 'Load'], [
+      { source: 'Lever', target: 'Load', type: 'Is A Necessary Condition' }
+    ])).toEqual([]);
+  });
+
+  it('leaves names that are only the relation', () => {
+    expect(faults(['Parent', 'Child', 'Orbits'], [
+      { source: 'Parent', target: 'Child', type: 'Parent Of' },
+      { source: 'Child', target: 'Orbits', type: 'Orbits' }
+    ])).toEqual([]);
+  });
+
+  it('does not match a node name inside a longer word, or a very short node name', () => {
+    expect(faults(['Land', 'Sea', 'A'], [
+      { source: 'Land', target: 'Sea', type: 'Is A Seasonal Border' }
+    ])).toEqual([]);
+  });
+});

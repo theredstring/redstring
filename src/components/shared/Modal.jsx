@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { useTheme } from '../../hooks/useTheme.js';
 import { X } from 'lucide-react';
 import PanelIconButton from './PanelIconButton.jsx';
+import { DIALOG_Z_INDEX } from './Dialog.jsx';
 
 /**
  * The general-purpose modal shell.
@@ -74,7 +75,7 @@ const Modal = ({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        zIndex: 1000,
+        zIndex: DIALOG_Z_INDEX,
         padding: '20px',
         touchAction: 'manipulation'
       }}

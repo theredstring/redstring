@@ -6,7 +6,7 @@ import useGraphStore from './store/graphStore.js';
 import PanelIconButton from './components/shared/PanelIconButton.jsx';
 import { haptic } from './services/haptics.js';
 import { ZOOM_BAR_HEIGHT } from './components/canvas/layers/ZoomBar.jsx';
-import { DEFAULT_ZOOM_BAR_POSITION } from './constants';
+import { DEFAULT_ZOOM_BAR_POSITION, OVER_PANELS_Z_INDEX } from './constants';
 import {
   canOfferDesktopDownload,
   isDesktopDownloadDismissed,
@@ -18,7 +18,7 @@ import {
  * A one-time nudge toward the desktop build, shown on the web only.
  *
  * Modelled on BackToCivilization — same pill, same pop/shrink, same
- * panel-aware centering — but anchored to the bottom, riding above the
+ * centering on the window — but anchored to the bottom, riding above the
  * TypeList when it's open. Acting on it or dismissing it retires it for good.
  */
 
@@ -115,10 +115,9 @@ const DownloadAppPill = ({ suppressed = false }) => {
     retire();
   };
 
-  // Centered in the usable viewport so the pill doesn't sit behind a panel, and
+  // The middle of the window, on top of a panel rather than moved by one, and
   // lifted clear of the TypeList when that's open (bottomReserved is its height,
   // or 0 when it's closed), and over the zoom bar when that shares the strip.
-  const centerX = viewportBounds.x + viewportBounds.width / 2;
   const bottom = viewportBounds.bottomReserved + BOTTOM_GAP + (zoomBarBelow ? ZOOM_BAR_HEIGHT + 8 : 0);
 
   let className = 'download-app-pill-wrapper';
@@ -136,10 +135,10 @@ const DownloadAppPill = ({ suppressed = false }) => {
       className={className}
       style={{
         position: 'fixed',
-        left: centerX,
+        left: '50%',
         bottom,
         transform: 'translateX(-50%)',
-        zIndex: 1000,
+        zIndex: OVER_PANELS_Z_INDEX,
         pointerEvents: 'auto',
       }}
     >
