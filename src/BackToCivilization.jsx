@@ -78,9 +78,9 @@ const BackToCivilization = ({
   //
   // The gap tightens in the shell for the same reason the header went: with the
   // whole screen barely taller than a desktop canvas is wide, a constant inset
-  // reads as a much deeper one. 40 keeps the pill at roughly the proportion of
-  // the canvas that 50 puts it at on desktop.
-  const topGap = mobileLandscapeShell ? 30 : 50;
+  // reads as a much deeper one. 30 keeps the pill at roughly the proportion of
+  // the canvas that 40 puts it at on desktop.
+  const topGap = mobileLandscapeShell ? 30 : 40;
   const centerY = viewportBounds.y + topGap;
 
   // Dynamic class name based on animation state
