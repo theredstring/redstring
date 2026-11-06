@@ -27,6 +27,7 @@ redstring://open?gh=...
 | Web | The page opens on `/open`; boot reads the address and opens it instead of your active universe | `universeBackend._doInitialize`, `UniverseHost` skips workspace setup and onboarding |
 | Desktop | `redstring://`, by "Open in App". macOS `open-url`; Windows and Linux `second-instance` and argv. Main holds it until the renderer takes it | `electron/main.cjs`, `electron/appLink.cjs`, `window.electron.sharedLinks` |
 | iOS, Android | `redstring://` via `appUrlOpen`, cold or running | `capacitorFileOpen.js`, `Info.plist`, `AndroidManifest.xml` |
+| Staging to `electron:dev` | `redstring-dev://`, which only a dev app takes, so an installed Redstring keeps `redstring://`. `electron:dev` declares it in `node_modules`' Electron.app first; the dev app must already be running, since macOS would otherwise launch bare Electron | `buildAppLink`, `scripts/register-dev-link.cjs` |
 
 `https://redstring.io/open` going straight to the phone app (Universal Links, App Links) isn't set up. It needs the Associated Domains capability, `apple-app-site-association` and `assetlinks.json`; `parseSharedLink` already reads those links.
 

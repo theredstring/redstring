@@ -232,12 +232,23 @@ describe('electron/main.cjs', () => {
   });
 
   describe('redstring:// links', () => {
-    it('a packaged build registers the scheme; development does not', async () => {
+    it('a packaged build registers only the scheme; development only its own', async () => {
       ctx = await boot({ isPackaged: true });
       expect(ctx.fake.calls.protocolClients).toEqual(['redstring']);
       fs.rmSync(ctx.tmp, { recursive: true, force: true });
       ctx = await boot({ isPackaged: false });
-      expect(ctx.fake.calls.protocolClients).toBeUndefined();
+      expect(ctx.fake.calls.protocolClients).toEqual(['redstring-dev']);
+    });
+
+    it('takes staging\'s scheme only in development', async () => {
+      const link = 'redstring-dev://open?gh=a/b/main/f.redstring';
+      ctx = await boot({ isPackaged: true });
+      ctx.fake.electron.app.emit('open-url', { preventDefault() {} }, link);
+      expect(await ctx.invoke('shared-link:take', ipcEvent(APP))).toBe(null);
+      fs.rmSync(ctx.tmp, { recursive: true, force: true });
+      ctx = await boot({ isPackaged: false });
+      ctx.fake.electron.app.emit('open-url', { preventDefault() {} }, link);
+      expect(await ctx.invoke('shared-link:take', ipcEvent(APP))).toBe(link);
     });
 
     it('holds an open link until the renderer takes it, once; ignores anything else', async () => {

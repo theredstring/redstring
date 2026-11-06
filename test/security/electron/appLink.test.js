@@ -13,6 +13,15 @@ describe('redstring:// links reaching the desktop app', () => {
     expect(isAppLink(null)).toBe(false);
   });
 
+  it('takes staging\'s scheme only in a dev app', () => {
+    const link = 'redstring-dev://open?gh=a/b/main/f.redstring';
+    expect(isAppLink(link)).toBe(false);
+    expect(isAppLink(link, { dev: true })).toBe(true);
+    expect(isAppLink('redstring-dev://auth?code=1', { dev: true })).toBe(false);
+    expect(appLinkFromArgv(['/app', link])).toBe(null);
+    expect(appLinkFromArgv(['/app', link], { dev: true })).toBe(link);
+  });
+
   it('finds the link among the arguments', () => {
     expect(appLinkFromArgv(['/app', '--flag', 'redstring://open?url=x'])).toBe('redstring://open?url=x');
     expect(appLinkFromArgv(['/app', '--flag'])).toBe(null);

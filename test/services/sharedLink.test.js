@@ -75,6 +75,17 @@ describe('shared links', () => {
     expect(parseSharedLink(app)).toBe('https://dav.example.com/foo.redstring');
   });
 
+  it('sends staging\'s Open in App to the dev app, and nothing else\'s', () => {
+    vi.stubGlobal('window', { location: { protocol: 'https:', hostname: 'redstring-staging.pages.dev', origin: 'https://redstring-staging.pages.dev' } });
+    const fromStaging = buildAppLink('https://dav.example.com/foo.redstring');
+    expect(fromStaging.startsWith('redstring-dev://open?url=')).toBe(true);
+    expect(parseSharedLink(fromStaging)).toBe('https://dav.example.com/foo.redstring');
+    expect(parseSharedLink('redstring-dev://auth?url=https%3A%2F%2Fexample.com%2Ff.redstring')).toBe(null);
+    vi.stubGlobal('window', { location: { protocol: 'https:', hostname: 'redstring.io', origin: 'https://redstring.io' } });
+    expect(buildAppLink('https://dav.example.com/foo.redstring').startsWith('redstring://open?url=')).toBe(true);
+    vi.unstubAllGlobals();
+  });
+
   it('never passes on a private raw link token', () => {
     const copied = 'https://raw.githubusercontent.com/g/a/main/f.redstring?token=SECRET';
     expect(normalizeSourceUrl(copied)).not.toContain('SECRET');

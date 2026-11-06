@@ -2,6 +2,7 @@ import React, { Profiler, memo, useCallback, useEffect, useMemo, useRef } from '
 import SaveStatusDisplay from '../../../SaveStatusDisplay';
 import ReadOnlyHost from './ReadOnlyHost.jsx';
 import { readSharedLinkFromAddress } from '../../../services/sharedLink.js';
+import useReadOnlyUniverse, { selectReadOnlyOpen } from '../../../store/readOnlyUniverse.js';
 import StorageSetupModal from '../../StorageSetupModal.jsx';
 import GitReconnectModal from '../../modals/GitReconnectModal.jsx';
 import FileAccessHost from './FileAccessHost.jsx';
@@ -496,11 +497,15 @@ function UniverseHost() {
     }
   }, []);
 
+  // A link arriving in the app on a fresh install: what they came to see goes
+  // first, and setting up waits until they close it.
+  const readOnlyOpen = useReadOnlyUniverse(selectReadOnlyOpen);
+  const onboardingUp = showStorageSetupModal && !readOnlyOpen;
 
   return (
     <Profiler id="UniverseHost" onRender={onRenderProbe}>
       {/* SaveStatusDisplay Component */}
-      <SaveStatusDisplay hidden={showStorageSetupModal} />
+      <SaveStatusDisplay hidden={onboardingUp} />
 
       <ReadOnlyHost />
 
@@ -508,10 +513,10 @@ function UniverseHost() {
           onboarding, which owns the screen when it's up. */}
       {/* Browser file access lost between sessions. Also yields to
           onboarding; the Git modal waits behind it. */}
-      <FileAccessHost suppressed={showStorageSetupModal} />
+      <FileAccessHost suppressed={onboardingUp} />
 
       <GitReconnectModal
-        isVisible={!!reconnect && !showStorageSetupModal && !fileAccessOpen}
+        isVisible={!!reconnect && !onboardingUp && !fileAccessOpen}
         mode={reconnect?.mode || 'load'}
         loaded={!universeLoadingError && !isUniverseLoading}
         onClose={() => {
@@ -534,7 +539,7 @@ function UniverseHost() {
 
       {/* Storage Setup Modal */}
       <StorageSetupModal
-        isVisible={showStorageSetupModal}
+        isVisible={onboardingUp}
         onClose={() => {
           // Persist dismissal so the onboarding doesn't reappear. Write both
           // scoped + unscoped so the flag survives version/session changes.

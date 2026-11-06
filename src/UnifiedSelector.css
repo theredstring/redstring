@@ -153,6 +153,8 @@
   flex-shrink: 1;
   min-width: 0;
   overflow: hidden;
+  /* A button centres its text, which would slide it while the width eases in. */
+  text-align: left;
   transition: width 220ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 

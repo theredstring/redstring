@@ -1437,7 +1437,7 @@ if (isDev) {
 
 // A redstring:// link waits here until the renderer takes it, so one that
 // arrives before the page is listening isn't lost.
-let pendingAppLink = appLinkFromArgv(process.argv);
+let pendingAppLink = appLinkFromArgv(process.argv, { dev: isDev });
 
 const showMainWindow = () => {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -1463,19 +1463,22 @@ handle('shared-link:take', async () => {
 // macOS delivers a link here, at launch and while running.
 app.on('open-url', (event, url) => {
   event.preventDefault();
-  if (isAppLink(url)) receiveAppLink(url);
+  if (isAppLink(url, { dev: isDev })) receiveAppLink(url);
 });
 
 // Second-launch attempts are forwarded here by the single-instance lock. On
 // Windows and Linux a link arrives this way.
 app.on('second-instance', (_event, argv) => {
-  const link = appLinkFromArgv(argv);
+  const link = appLinkFromArgv(argv, { dev: isDev });
   if (link) receiveAppLink(link);
   else showMainWindow();
 });
 
 // Packaged builds only: in development this would register the bare Electron binary.
 if (!isDev && !sessionName) app.setAsDefaultProtocolClient('redstring');
+// electron:dev answers staging's links under a scheme of its own, so the installed
+// app keeps redstring://. scripts/register-dev-link.cjs declares it on macOS.
+if (isDev && !sessionName) app.setAsDefaultProtocolClient('redstring-dev', process.execPath, [path.resolve(process.argv[1] || '.')]);
 
 app.whenReady().then(async () => {
   // Prevent multiple instances on ALL platforms. macOS needs this too:

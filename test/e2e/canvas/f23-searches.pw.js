@@ -8,6 +8,14 @@ const openUI = (page, setter, value) => page.evaluate(async ([s, v]) => {
   ui.getState()[s](v);
 }, [setter, value]);
 
+// Opens search where it looks from, and waits out the selector's first 250 ms,
+// when it drops clicks (INPUT_GRACE_MS: the second click of the one that opened it).
+const openSearch = async (page, scope) => {
+  await openUI(page, 'setSearchScope', scope);
+  await expect(page.locator('.unified-selector-card').first()).toBeVisible();
+  await page.waitForTimeout(300);
+};
+
 test('F23 New Thing: naming it creates a web defined by a new Thing and opens it', async ({ page }) => {
   await openFixture(page, 'small');
   const before = await storeEval(page, (st) => st.graphs.size);
@@ -28,7 +36,7 @@ test('F23b search this web: picking a Thing opens its tab and flies the camera t
   await waitForCameraSettled(page);
   const cam0 = await camera(page);
 
-  await openUI(page, 'setSearchScope', 'this-web');
+  await openSearch(page, 'this-web');
   const card = page.locator('.unified-selector-card', { hasText: name }).first();
   await expect(card).toBeVisible();
   await card.click();
@@ -66,7 +74,7 @@ test('F23d search never makes a Web: one opens, none opens the tab, several are 
   });
   test.skip(!ids.thing, 'fixture has no Thing without a Web');
 
-  await openUI(page, 'setSearchScope', 'everything');
+  await openSearch(page, 'everything');
   const name = await storeEval(page, (st, id) => st.nodePrototypes.get(id).name, ids.thing);
   await page.locator('.unified-selector-card', { hasText: name }).first().click();
   await expect.poll(() => storeEval(page, (st) => st.rightPanelTabs.find((t) => t.isActive)?.nodeId)).toBe(ids.thing);
@@ -77,11 +85,14 @@ test('F23d search never makes a Web: one opens, none opens the tab, several are 
     st.createAndAssignGraphDefinitionWithoutActivation(id),
     st.createAndAssignGraphDefinitionWithoutActivation(id),
   ], ids.thing);
-  await openUI(page, 'setSearchScope', 'everything');
+  await openSearch(page, 'everything');
   await page.locator('.unified-selector-card', { hasText: name }).first().click();
   await expect(page.getByText('Choose a Web to open')).toBeVisible();
   const cards = page.locator('.unified-selector-card');
   await expect(cards).toHaveCount(2);
+  // A page of its own, with the same first 250 ms: a double click on the Thing
+  // doesn't also choose a Web.
+  await page.waitForTimeout(300);
   await cards.nth(1).click();
   await expect.poll(() => storeEval(page, (st) => st.activeGraphId)).toBe(webs[1]);
   expect(await storeEval(page, (st) => st.graphs.size)).toBe(ids.size + 2);
@@ -107,7 +118,7 @@ test('F23e read-only: search reads the same, the + is gone, and Auto Layout is d
     return store.getState().nudge;
   });
   const nudged = await nudges();
-  await openUI(page, 'setSearchScope', 'everything');
+  await openSearch(page, 'everything');
   await page.locator('.unified-selector-card', { hasText: ids.thing.name }).first().click();
   await expect.poll(() => storeEval(page, (st) => st.rightPanelTabs.find((t) => t.isActive)?.nodeId)).toBe(ids.thing.id);
   expect(await nudges()).toBe(nudged);

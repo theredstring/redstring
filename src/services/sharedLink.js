@@ -4,6 +4,7 @@
  *   https://redstring.io/open?gh=owner/repo/main/universes/foo.redstring
  *   https://redstring.io/open?url=https%3A%2F%2Fexample.com%2Ffoo.redstring
  *   redstring://open?gh=...        (the same link, for the installed apps)
+ *   redstring-dev://open?gh=...    (staging's, for electron:dev)
  *
  * A link only says where the file is. It grants nothing: the host decides who
  * can read it. Always `/open`, one level deep, because the page's assets load
@@ -13,7 +14,8 @@
 import { classifyUrl } from './externalUniverseLoader.js';
 
 const CANONICAL_ORIGIN = 'https://redstring.io';
-const LINK_HOSTS = new Set(['redstring.io', 'www.redstring.io', 'redstring-staging.pages.dev']);
+const STAGING_HOST = 'redstring-staging.pages.dev';
+const LINK_HOSTS = new Set(['redstring.io', 'www.redstring.io', STAGING_HOST]);
 const OPEN_PATH = /^\/open\/?$/;
 const RAW_GITHUB = 'https://raw.githubusercontent.com/';
 
@@ -55,7 +57,7 @@ export function parseSharedLink(href, { anyHost = false } = {}) {
   } catch {
     return null;
   }
-  if (url.protocol === 'redstring:') {
+  if (url.protocol === 'redstring:' || url.protocol === 'redstring-dev:') {
     if (url.hostname !== 'open') return null;
   } else {
     if (url.protocol !== 'https:' && !anyHost) return null;
@@ -92,10 +94,19 @@ export function buildSharedLink(sourceUrl) {
   return query ? `${linkOrigin()}/open?${query}` : null;
 }
 
-/** The same link, for handing to an installed app. */
+const onStaging = () => {
+  try {
+    return window.location.hostname === STAGING_HOST;
+  } catch {
+    return false;
+  }
+};
+
+/** The same link, for handing to an installed app; from staging, to electron:dev. */
 export function buildAppLink(sourceUrl) {
   const query = linkQuery(sourceUrl);
-  return query ? `redstring://open?${query}` : null;
+  if (!query) return null;
+  return onStaging() ? `redstring-dev://open?${query}` : `redstring://open?${query}`;
 }
 
 /** In the desktop or phone app, where there's no other app to hand a link to. */

@@ -644,6 +644,26 @@ test('F50 an attempted edit says Read Only at the bottom right, and moving aroun
   expect(await answers()).toBe(before + 1);
 });
 
+test('F50 a link arriving in the app on a fresh install goes ahead of setting up', async ({ page }) => {
+  await hostFile(page);
+  await page.goto('/');
+  const welcome = page.getByText('Welcome to Redstring');
+  await expect(welcome).toBeVisible({ timeout: 30_000 });
+
+  // As the desktop app receives a link: no page load, and nothing of yours yet.
+  await page.evaluate(async (source) => {
+    const { default: backend } = await import('/src/services/universeBackend.js');
+    await backend.openReadOnlyUniverse(source);
+  }, SOURCE);
+  await expect(page.getByTestId('read-only-bar')).toBeVisible({ timeout: 30_000 });
+  await expect(welcome).toBeHidden();
+  await pillSettled(page);
+
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(page.getByTestId('read-only-bar')).toBeHidden({ timeout: 30_000 });
+  await expect(welcome).toBeVisible({ timeout: 30_000 });
+});
+
 test('F50 the bar fits a phone', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 780 });
   await hostFile(page);
