@@ -8,7 +8,7 @@
 
 import { resolvePaletteColor, getRandomPalette } from '../../ai/palettes.js';
 import { validateEdgesSmart, edgeScopeFromState, describeEdgeValidation } from './edgeValidator.js';
-import { analyzeGraphQuality } from './graphQuality.js';
+import { analyzeGraphQuality, definingThingNames } from './graphQuality.js';
 import { resolveGraphId } from './resolveGraphId.js';
 import { runStructureReview } from './utils/structureReview.js';
 import { newBuildId } from '../../services/oneShot.js';
@@ -168,7 +168,12 @@ export async function expandGraph(args, graphState, cid, ensureSchedulerStarted)
   const namesInGraph = (targetGraph?.instances || [])
     .map(inst => inst?.name || protoNameById.get(inst?.prototypeId))
     .filter(Boolean);
-  const qualityReport = analyzeGraphQuality(nodeSpecs, edgeSpecs, { layers: layerSpecs, groups: groupSpecs, existingNames: namesInGraph });
+  const qualityReport = analyzeGraphQuality(nodeSpecs, edgeSpecs, {
+    layers: layerSpecs,
+    groups: groupSpecs,
+    existingNames: namesInGraph,
+    definingNames: definingThingNames(graphState, graphId)
+  });
 
   // Part B — Structure review over the newly-added nodes/edges (free detection;
   // model pass only on dense candidates, biased to suggest nothing). Surfaced in

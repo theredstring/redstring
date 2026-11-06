@@ -84,6 +84,76 @@ describe('analyzeGraphQuality — hub detection', () => {
   });
 });
 
+describe('analyzeGraphQuality — composition', () => {
+  // These passed as "Good structure": too few to repeat, too spread out to be a hub.
+  it('flags composition written as edges even when used only once or twice', () => {
+    const report = analyzeGraphQuality(['Car', 'Engine', 'Wheels', 'Chassis', 'Driver', 'Road'].map(node), [
+      { source: 'Car', target: 'Engine', type: 'Contains' },
+      { source: 'Wheels', target: 'Car', definitionNode: { name: 'Is Part Of' } },
+      { source: 'Engine', target: 'Wheels', type: 'Powers' },
+      { source: 'Wheels', target: 'Road', type: 'Grip' },
+      { source: 'Driver', target: 'Car', type: 'Steers' },
+      { source: 'Chassis', target: 'Engine', type: 'Supports' }
+    ]);
+    expect(report.compositionEdges.map(e => [e.whole, e.part])).toEqual([['Car', 'Engine'], ['Car', 'Wheels']]);
+    expect(report.feedback).toMatch(/COMPOSITION AS EDGES/);
+    // Corrective, not just a complaint: it names the move, and when the edge may stay.
+    expect(report.feedback).toContain('put Engine, Wheels inside "Car"');
+    expect(report.feedback).toMatch(/real relation between peers/);
+  });
+
+  it('finds them inside a layer\'s web', () => {
+    const report = analyzeGraphQuality([node('Car')], [], {
+      layers: [{
+        name: 'Engine',
+        definition: { nodes: [node('Block'), node('Piston')], edges: [{ source: 'Block', target: 'Piston', type: 'Has' }] }
+      }]
+    });
+    expect(report.compositionEdges).toHaveLength(1);
+  });
+
+  it('leaves relations that only start with the same word', () => {
+    const report = analyzeGraphQuality([node('A'), node('B')], [
+      { source: 'A', target: 'B', type: 'Has Influence On' },
+      { source: 'B', target: 'A', type: 'Holds' }
+    ]);
+    expect(report.compositionEdges).toEqual([]);
+    expect(report.feedback).not.toMatch(/COMPOSITION AS EDGES/);
+  });
+
+  it('flags a Thing placed in its own web, and only with the web\'s Thing known', () => {
+    const nodes = ['Car', 'Engine', 'Wheels'].map(node);
+    const edges = [{ source: 'Engine', target: 'Wheels', type: 'Powers' }, { source: 'Car', target: 'Wheels', type: 'Rides On' }];
+    const report = analyzeGraphQuality(nodes, edges, { definingNames: ['car'] });
+    expect(report.selfPlaced).toEqual(['Car']);
+    expect(report.feedback).toMatch(/IN ITS OWN WEB/);
+    expect(analyzeGraphQuality(nodes, edges).selfPlaced).toEqual([]);
+  });
+
+  it('flags a layer placed inside its own definition', () => {
+    const report = analyzeGraphQuality([], [], {
+      layers: [{ name: 'Engine', definition: { nodes: [node('Engine'), node('Piston')] } }]
+    });
+    expect(report.selfPlaced).toEqual(['Engine']);
+  });
+
+  // A set of members with no edges is correct, and "connect them" is the pressure
+  // that produced "Contains" edges.
+  it('asks rather than orders when a web has no connections at all', () => {
+    const report = analyzeGraphQuality(['Mercury', 'Venus', 'Earth', 'Mars'].map(node), []);
+    expect(report.orphanedNodes).toHaveLength(4);
+    expect(report.feedback).toMatch(/NO CONNECTIONS/);
+    expect(report.feedback).toMatch(/set of members/);
+    expect(report.feedback).not.toMatch(/Add edges to bridge|Low connectivity|Connect each/);
+  });
+
+  it('still corrects a stray orphan in a connected web, offering to move it inside', () => {
+    const report = analyzeGraphQuality(['A', 'B', 'C'].map(node), [{ source: 'A', target: 'B', type: 'Feeds' }]);
+    expect(report.feedback).toMatch(/Connect each to the peers it acts on, or if it belongs inside one of them, move it there/);
+    expect(report.feedback).not.toMatch(/NO CONNECTIONS/);
+  });
+});
+
 describe('analyzeGraphQuality — repeated relation', () => {
   it('flags one relation used for nearly everything', () => {
     const { nodes, edges } = cytoplasmStar();

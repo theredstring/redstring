@@ -32,6 +32,18 @@
  * into one ("Runs On Adenosine Built On") and hide a Thing the web needed. There
  * is no right word count, so a flagged name is a question, not a rule: the
  * feedback says to leave it when the name really is the relation.
+ *
+ * ── Why composition is checked ───────────────────────────────────────────────
+ *
+ * A web is the inside of its Thing, so "Car Contains Engine" states with an edge
+ * what placing Engine in Car's web already says. Used a couple of times among
+ * real relations, that edge slipped past the hub and repetition checks and scored
+ * "Good structure". It can occasionally be a real relation between peers, so this
+ * too is a question: the feedback names the better structure and when to keep it.
+ *
+ * The same reasoning runs the other way for a web with no edges at all. A set of
+ * members can be correctly unconnected, and telling it to add edges is the very
+ * pressure that produces "Contains".
  */
 
 /** One node holding at least this share of all edge endpoints reads as a hub. */
@@ -51,6 +63,14 @@ const FLATNESS_NODE_THRESHOLD = 8;
 const LONG_CONNECTION_WORDS = 5;
 /** Shorter node names ("A", "In") match ordinary words in a connection name. */
 const MIN_NAMED_THING_LENGTH = 3;
+
+/** Connection names that say one end makes up the other, by direction. "Is"/"Are" are stripped first. */
+const WHOLE_TO_PART_RELATIONS = new Set([
+  'contains', 'has', 'has part', 'has parts', 'includes', 'consists of', 'comprises', 'composed of', 'made of', 'made up of'
+]);
+const PART_TO_WHOLE_RELATIONS = new Set(['part of', 'contained in', 'contained by']);
+/** How many composition edges the feedback spells out. The report keeps them all. */
+const MAX_LISTED_COMPOSITION_EDGES = 6;
 
 const nameWords = (name) => String(name || '').toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean).join(' ');
 
@@ -74,6 +94,45 @@ function allLayersCollapsed(layers) {
   return layers.length > 0 && layers.every(l => l.display === 'collapsed');
 }
 
+/** Edges named for composition, at this level and inside every layer's web. */
+function findCompositionEdges(edges, layers) {
+  const found = [];
+  for (const edge of (edges || [])) {
+    const relation = String(edge.type || edge.definitionNode?.name || '').trim();
+    const words = nameWords(relation).replace(/^(is|are) /, '');
+    if (WHOLE_TO_PART_RELATIONS.has(words)) {
+      found.push({ source: edge.source, relation, target: edge.target, whole: edge.source, part: edge.target });
+    } else if (PART_TO_WHOLE_RELATIONS.has(words)) {
+      found.push({ source: edge.source, relation, target: edge.target, whole: edge.target, part: edge.source });
+    }
+  }
+  for (const layer of (layers || [])) {
+    if (layer?.definition) found.push(...findCompositionEdges(layer.definition.edges, layer.definition.layers));
+  }
+  return found;
+}
+
+/** Things placed in their own web, at this level and inside every layer's web. */
+function findSelfPlaced(definingNames, nodes, layers) {
+  const defining = new Set(definingNames.map(n => String(n || '').toLowerCase().trim()).filter(Boolean));
+  const found = [...(nodes || []), ...(layers || [])]
+    .map(n => n?.name)
+    .filter(name => defining.has(String(name || '').toLowerCase().trim()));
+  for (const layer of (layers || [])) {
+    if (layer?.definition) found.push(...findSelfPlaced([layer.name], layer.definition.nodes, layer.definition.layers));
+  }
+  return [...new Set(found)];
+}
+
+/** The Things a web is the inside of. */
+export function definingThingNames(graphState, graphId) {
+  const protos = graphState?.nodePrototypes;
+  const list = Array.isArray(protos) ? protos : (protos instanceof Map ? Array.from(protos.values()) : []);
+  return list
+    .filter(p => Array.isArray(p?.definitionGraphIds) && p.definitionGraphIds.includes(graphId))
+    .map(p => p.name);
+}
+
 function median(values) {
   if (values.length === 0) return 0;
   const sorted = [...values].sort((a, b) => a - b);
@@ -91,6 +150,7 @@ function median(values) {
  * @param {Object} [opts]
  * @param {Array<{name: string}>} [opts.layers] - Layers at this level. They are
  *   treated as nodes for connectivity, and counted for the flatness check.
+ * @param {string[]} [opts.definingNames] - The Things this web is the inside of.
  * @returns {Object} Quality report
  */
 export function analyzeGraphQuality(nodes, edges, opts = {}) {
@@ -116,6 +176,8 @@ export function analyzeGraphQuality(nodes, edges, opts = {}) {
       hub: null,
       dominantRelation: null,
       overloadedConnections: [],
+      compositionEdges: [],
+      selfPlaced: [],
       feedback: 'No nodes to analyze.'
     };
   }
@@ -250,6 +312,10 @@ export function analyzeGraphQuality(nodes, edges, opts = {}) {
   }
   const overloadedConnections = [...connectionFaults].map(([name, fault]) => ({ name, fault }));
 
+  // ── Composition ───────────────────────────────────────────────────────────
+  const compositionEdges = findCompositionEdges(edges, layers);
+  const selfPlaced = findSelfPlaced(opts.definingNames || [], nodes, layers);
+
   // ── Connectivity ──────────────────────────────────────────────────────────
   const degreeValues = Array.from(degrees.values());
   const totalDegree = degreeValues.reduce((sum, d) => sum + d, 0);
@@ -277,19 +343,52 @@ export function analyzeGraphQuality(nodes, edges, opts = {}) {
 
   // ── Feedback ──────────────────────────────────────────────────────────────
   const issues = [];
-  if (orphanedNodes.length > 0) {
+  // No edges at all is its own question, not a pile of orphans: it can be a set of
+  // members, which is right, or a web whose connections were never written.
+  const noConnections = !opts.advisory && allNodes.length >= 2 && (edges || []).length === 0;
+  if (noConnections) {
+    issues.push(
+      `NO CONNECTIONS: none of these ${allNodes.length} Things connect to anything. Most webs need connections: `
+      + 'if they act on each other, connect them peer to peer by what they do. If this web is a set of members '
+      + '(the kinds of a Thing, the items of a collection), leave them unconnected and say so in the description. '
+      + 'Do not fill it with "Contains" edges or spokes to one center.'
+    );
+  }
+  if (orphanedNodes.length > 0 && !noConnections) {
     // The trailing imperative belongs to the BUILD callers, which rely on it to
     // finish what they started. It is actively wrong for a caller that is asking
     // a question rather than building: a Thing can be deliberately unconnected —
     // that is the correct answer to "does this connect to anything here?" — and
     // telling the model to connect it manufactures exactly the false yes that
     // answer exists to avoid. `advisory` reports the observation without the
-    // instruction; the builders' string is left byte-identical.
+    // instruction.
     const orphanNote = `${orphanedNodes.length} orphaned node(s) with no connections: ${orphanedNodes.join(', ')}.`;
-    issues.push(opts.advisory ? orphanNote : `${orphanNote} Connect them to related nodes.`);
+    issues.push(opts.advisory ? orphanNote : `${orphanNote} Connect each to the peers it acts on, or if it belongs inside one of them, move it there.`);
   }
-  if (componentCount > 1) {
+  if (componentCount > 1 && !noConnections) {
     issues.push(`Graph has ${componentCount} disconnected components — should be 1 connected graph. Add edges to bridge them.`);
+  }
+  if (compositionEdges.length > 0) {
+    const listed = compositionEdges.slice(0, MAX_LISTED_COMPOSITION_EDGES)
+      .map(e => `"${e.source}" ${e.relation} "${e.target}"`);
+    const extra = compositionEdges.length - listed.length;
+    const partsByWhole = new Map();
+    for (const { whole, part } of compositionEdges.slice(0, MAX_LISTED_COMPOSITION_EDGES)) {
+      partsByWhole.set(whole, [...(partsByWhole.get(whole) || []), part]);
+    }
+    const moves = [...partsByWhole].map(([whole, parts]) => `${parts.join(', ')} inside "${whole}"`).join('; ');
+    issues.push(
+      `COMPOSITION AS EDGES: ${listed.join('; ')}${extra > 0 ? ` and ${extra} more` : ''}. `
+      + `If one end makes up the other, use the structure instead: put ${moves}, as a layer or in its web `
+      + '(if this web already is that whole, the parts just belong here), then connect the parts to each other by what they do. '
+      + 'Keep an edge only if it is a real relation between peers, neither the other\'s inside, and name what it does ("Sheath Holds Sword").'
+    );
+  }
+  if (selfPlaced.length > 0) {
+    issues.push(
+      `IN ITS OWN WEB: ${selfPlaced.map(n => `"${n}"`).join(', ')} placed inside the web that already is that Thing seen from inside. `
+      + 'Remove it and connect what is here to each other. Keep it only if the recursion is real: a Thing truly made partly of itself.'
+    );
   }
 
   // Named before the low-connectivity note, because the usual "fix" for low
@@ -316,7 +415,7 @@ export function analyzeGraphQuality(nodes, edges, opts = {}) {
       + 'Leave a name that really is the relation ("Parent Of").'
     );
   }
-  if (avgConnectionsPerNode < 1.5 && allNodes.length > 2 && !hub) {
+  if (avgConnectionsPerNode < 1.5 && allNodes.length > 2 && !hub && !noConnections) {
     issues.push(`Low connectivity (avg ${avgConnectionsPerNode} connections/node). Aim for 2-3 connections per node — between peers, not all through one node.`);
   }
   // Flatness fires only when the model has ALREADY found clusters and made them
@@ -374,6 +473,8 @@ export function analyzeGraphQuality(nodes, edges, opts = {}) {
     hub,
     dominantRelation,
     overloadedConnections,
+    compositionEdges,
+    selfPlaced,
     feedback
   };
 }

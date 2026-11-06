@@ -264,7 +264,7 @@ export function getToolDefinitions(options = {}) {
 
         {
             name: 'createGraph',
-            description: 'Create a new graph workspace',
+            description: 'Create a new web: the inside of the Thing it is named for',
             parameters: {
                 type: 'object',
                 properties: {
@@ -363,12 +363,12 @@ export function getToolDefinitions(options = {}) {
         },
         {
             name: 'createPopulatedGraph',
-            description: 'Create a new graph workspace with nodes, edges, and groups. Triggers auto-layout. Auto-enriches all nodes and the defining node from Wikipedia by default.',
+            description: 'Create a new web (the inside of the Thing it is named for) with nodes, edges, and groups. Triggers auto-layout. Auto-enriches all nodes and the defining node from Wikipedia by default.',
             parameters: {
                 type: 'object',
                 properties: {
                     palette: { type: 'string', description: PALETTE_DESC },
-                    name: { type: 'string', description: 'Name for the new graph workspace.' },
+                    name: { type: 'string', description: 'Name of the whole this web is the inside of.' },
                     color: { type: 'string', description: COLOR_DESC + ' Applied to the defining node of this graph.' },
                     description: { type: 'string', description: 'High-level bio of this graph/concept — becomes the defining node\'s description visible in the parent graph. Required.' },
                     nodes: {

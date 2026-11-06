@@ -203,7 +203,7 @@ export async function populateDefinitionGraph(args, graphState, cid, ensureSched
     }));
 
     // Analyze graph quality for LLM feedback
-    const qualityReport = analyzeGraphQuality(nodeSpecs, edgeSpecs, { layers: layerSpecs, groups: groupSpecs });
+    const qualityReport = analyzeGraphQuality(nodeSpecs, edgeSpecs, { layers: layerSpecs, groups: groupSpecs, definingNames: [prototype.name] });
 
     // Warn when the definition graph is sparse — a good definition should have 5-8 nodes
     const sparseWarning = nodeSpecs.length < 5

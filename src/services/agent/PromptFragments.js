@@ -5,24 +5,31 @@ export const PALETTE_INSTRUCTIONS = buildPalettePromptFragment();
 export const REDSTRING_CONTEXT = `
 ## How Redstring Works
 
-- **Graph (Web)**: A workspace containing nodes and edges
-- **Node (Thing)**: A concept with a name, color, and optional description
+- **Graph (Web)**: The inside of a Thing: what makes it up, and how those pieces relate
+- **Node (Thing)**: A concept with a name, color, and optional description. A Thing is its web seen from outside
 - **Edge (Connection)**: A link between two nodes. Uses Subject --[Verb]--> Object triple style
 - Every edge MUST have a \`definitionNode\` object that defines the "Verb"
 - Each Thing can have definition graphs describing what it is made of
 
+## A Web Is the Inside of a Thing
+Being placed in a web means "this is one of what makes up that whole." That holds at every level, top-level webs included: a new web is the inside of the Thing it is named for, never just a room to put things in.
+- Before you place anything, know what whole this web is the inside of, name the web for that whole, and place only what makes it up.
+- What makes up a whole can be the parts of an object, the stages of a process, or the members of a set. Know which one this web is and keep to it.
+- A web can be a folder or collection when it is meant to be one, since a collection is made up of its members. Say so in its description and hold it to those members.
+- What doesn't make up the whole goes elsewhere: a broader kind goes on the Thing's is-a ladder, and a contrast or opinion becomes a connection or a description.
+
 ## Core Tool Priority
 1. **planTask**: ONLY for graph construction or 3+ coordinated tool calls. Never for greetings, questions, or conversation. **Use substeps** to break steps into concrete actions (which Things to create, which Connections to add, which definitions to build). Update step and substep statuses as you go.
 2. **sketchGraph**: Call BEFORE building any Web with 5+ Things. Validates structure and catches orphans cheaply.
-3. **createPopulatedGraph**: Use for all new Webs. Only tool that triggers auto-layout. Always provide a thematic \`color\`.
+3. **createPopulatedGraph**: Use for all new Webs, with \`layers\` for the clusters that are concepts. Only tool that triggers auto-layout. Always provide a thematic \`color\`.
 4. **populateDefinitionGraph**: Use for all internal definitions. Builds hierarchies without changing the user's view.
 5. **expandGraph**: Use to add content to an existing Web.
 6. **listTools**: Call this to see the FULL catalog of all available tools and unlock every tool for the rest of this turn. If you need a tool that isn't in your current set, call listTools first.
 Avoid \`createNode\` + \`createEdge\` separately — use bulk tools instead.
 
 ## Graph Connectivity
-- Strive for 2-3 edges per node. A graph without edges is just a list.
-- Exception: Simple sets/collections may skip edges.
+- Strive for 2-3 edges per node, between peers. A graph of parts without edges is just a list.
+- Exception: a web that is a set of members (the kinds of a Thing, the items of a collection) can have no edges. Don't invent edges to fill it.
 - Every edge requires a nested \`definitionNode\` object.
 
 ## Definition Graphs: Recursive Composition
@@ -63,7 +70,10 @@ All graph-mutating and read-only tools accept optional \`targetGraphId\`. If omi
 - A name that invokes another object or a larger phrase has skipped a Thing: add it and connect through it. Detail not worth a Thing goes in an endpoint's description.
   ❌ Tired Neuron → Runs On Adenosine Built On → Purine
   ✅ Tired Neuron → Accumulates → Adenosine, with Purine inside an Adenosine layer
-- **NEVER create "Composed Of", "Made Of", "Contains", "Part Of", or "Has" edges** — membership/composition belongs in a layer or definition graph, never as an edge.
+- **A composition edge is usually a missing layer.** When you reach for "Composed Of", "Made Of", "Contains", "Part Of", "Includes", or "Has", ask whether one end makes up the other. If it does, use the structure: put it inside the whole's layer or web, then connect it to its peers by what it does there.
+  ❌ Car → Contains → Engine, Car → Has → Wheels
+  ✅ a \`Car\` layer holding Engine and Wheels, with Engine → Powers → Wheels
+  Keep such an edge only when it is a real relation between peers and neither is the other's inside, which is rare. Even then, prefer the name for what it does: Sheath → Holds → Sword.
 - **NEVER build a hub.** If most nodes in a graph connect to one central node, especially with the
   same relation repeated, that is containment wearing a disguise — the same mistake as a
   "Composed Of" edge. Make the center a layer and put those nodes inside it.
@@ -78,7 +88,7 @@ All graph-mutating and read-only tools accept optional \`targetGraphId\`. If omi
 
 ## Groups and Layers (Composition)
 
-Composition is structural in Redstring, never an edge. There are exactly two containers,
+Composition in Redstring is structure, not an edge. There are exactly two containers,
 and **the layer is the default** — reach for a plain group only when a layer would be wrong.
 
 ### Layer (node-group) — the cluster IS a Thing, and it has a web inside it
@@ -150,8 +160,8 @@ from the graph you authored it in.
 - If a Thing with that name already exists and you mean THAT one, invoke it with \`use:\` instead
   of authoring a second copy. If you mean a different one, qualify the name.
 
-A layer is not a folder. "Components", "Overview", "Miscellaneous", "Other" are not concepts —
-if that is the best name you have, it should be a plain group or nothing at all.
+A layer needs a real whole behind it. "Components", "Overview", "Miscellaneous", "Other" don't
+name one — if that is the best name you have, it should be a plain group or nothing at all.
 
 ### Plain Group — a visual label, nothing more
 Only when the cluster's name isn't a concept anyone would point at: a temporary contrast in one
@@ -180,8 +190,8 @@ Engine across every web that references it, instead of scattering near-duplicate
 
 ### Don't overdo it
 Depth is warranted when a cluster's members define what it is — not for every cluster and not for
-its own sake. A genuinely flat subject stays flat: the eight planets are eight nodes, and wrapping
-each in a layer would add ceremony without adding meaning. Aim for depth where the structure is
+its own sake. A genuinely flat subject stays flat: a cast of characters whose relationships are the
+point is one web, and wrapping each character in a layer would add ceremony without adding meaning. Aim for depth where the structure is
 real, and stop when the next level down would just restate the name above it.
 
 **Never orchestrate composition by hand** — do not chain populateDefinitionGraph → thingGroup →

@@ -17,7 +17,7 @@
  */
 
 import { getRandomPalette } from '../../ai/palettes.js';
-import { analyzeGraphQuality } from './graphQuality.js';
+import { analyzeGraphQuality, definingThingNames } from './graphQuality.js';
 import { summarizeLadders } from './utils/abstractionSpec.js';
 import { resolveGraphId } from './resolveGraphId.js';
 import {
@@ -84,12 +84,16 @@ export async function buildComposition(args, graphState) {
     ctx.warnings.push(`Nesting is ${ctx.stats.maxDepth} levels deep — deep stacks are hard to read on the canvas. Consider marking some layers "collapsed".`);
   }
 
-  // Quality feedback on the top level only; nested levels are reported through
-  // warnings. Layers MUST be passed: they are legal edge endpoints here, so
-  // omitting them dropped every node-to-layer edge from the adjacency and
-  // reported perfectly well-connected nodes as orphans — which is what drove the
-  // model to "fix" a composed graph by flattening it with hub edges.
-  const qualityReport = analyzeGraphQuality(spec.nodes, spec.edges, { layers: spec.layers, groups: spec.groups });
+  // Quality feedback on the top level, plus composition checks through the nesting;
+  // other nested problems are reported through warnings. Layers MUST be passed: they
+  // are legal edge endpoints here, so omitting them dropped every node-to-layer edge
+  // from the adjacency and reported perfectly well-connected nodes as orphans — which
+  // is what drove the model to "fix" a composed graph by flattening it with hub edges.
+  const qualityReport = analyzeGraphQuality(spec.nodes, spec.edges, {
+    layers: spec.layers,
+    groups: spec.groups,
+    definingNames: definingThingNames(graphState, graphId)
+  });
 
   console.error('[buildComposition] graph:', graphId, 'layers:', ctx.stats.layerCount, 'maxDepth:', ctx.stats.maxDepth);
 

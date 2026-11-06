@@ -441,7 +441,13 @@ export async function sketchGraph(args, graphState) {
   // Run quality analysis on the expanded spec. Layers go through the dedicated
   // `layers` option rather than being folded into the node list, so the analyzer
   // can also judge whether this level is composed or flat.
-  const quality = analyzeGraphQuality(expandedNodes, expandedEdges, { layers: expandedLayers, groups: expandedGroups });
+  // A sketch's name can be the subject rather than the web: sketching a "Car" layer
+  // to build into a parent is fine, so only a plain node named for it is self-placed.
+  const quality = analyzeGraphQuality(expandedNodes, expandedEdges, {
+    layers: expandedLayers,
+    groups: expandedGroups,
+    definingNames: expandedLayers.some(l => l.name?.toLowerCase().trim() === name.toLowerCase().trim()) ? [] : [name]
+  });
 
   // Build validation warnings
   const warnings = [...ctx.warnings];

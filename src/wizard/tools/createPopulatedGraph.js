@@ -4,7 +4,7 @@
 
 import { resolvePaletteColor, getRandomPalette } from '../../ai/palettes.js';
 import { validateEdgesSmart, edgeScopeFromState, describeEdgeValidation } from './edgeValidator.js';
-import { analyzeGraphQuality } from './graphQuality.js';
+import { analyzeGraphQuality, definingThingNames } from './graphQuality.js';
 import { classifyGraphShape } from './utils/classifyGraphShape.js';
 import { isEdgelessShape, isAbstractionShape } from './utils/graphShapes.js';
 import { planUnfold } from './utils/unfoldController.js';
@@ -294,7 +294,11 @@ export async function createPopulatedGraph(args, graphState, cid, ensureSchedule
 
   // Analyze graph quality for LLM feedback. Layers count as nodes so an edge to
   // one is a real connection, not a dropped edge with an orphan at the far end.
-  const qualityReport = analyzeGraphQuality(nodeSpecs, edgeSpecs, { layers: layerSpecs, groups: groupSpecs });
+  const qualityReport = analyzeGraphQuality(nodeSpecs, edgeSpecs, {
+    layers: layerSpecs,
+    groups: groupSpecs,
+    definingNames: targetGraphId ? definingThingNames(graphState, graphId) : [name]
+  });
 
   // Part B — Structure review. Deterministic cluster detection is free; the model
   // pass runs only on dense candidates and is strongly biased to suggest nothing.
