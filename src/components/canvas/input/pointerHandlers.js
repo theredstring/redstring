@@ -1161,6 +1161,7 @@ export function createPointerHandlers(ctxRef) {
     const rect = containerRef.current.getBoundingClientRect();
     const { x: mouseX, y: mouseY } = clientToCanvas(e.clientX, e.clientY, rect, panOffsetRef.current, zoomLevelRef.current, canvasSize);
     // Prevent plus sign if pie menu is active or about to become active or hovering an edge
+    if (isReadOnlyUniverseOpen()) return; // Nothing to make here.
     if (!plusSign && selectedInstanceIds.size === 0 && !useCanvasUIStore.getState().hoveredEdgeInfo) {
       // clientX/Y and groupInteriorId are for the "Add to group?" offer once it lands (plusSignMorph).
       setPlusSign({ x: mouseX, y: mouseY, mode: 'appear', tempName: '', clientX: e.clientX, clientY: e.clientY, groupInteriorId });

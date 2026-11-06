@@ -1,4 +1,5 @@
 import useGraphStore from '../store/graphStore.js';
+import { isReadOnlyUniverseOpen } from '../store/readOnlyUniverse.js';
 import * as fileStorage from '../store/fileStorage.js';
 import { askConfirm, showNotice } from '../components/shared/appDialogs.js';
 
@@ -13,6 +14,7 @@ const hasWork = () => {
 };
 
 export async function newUniverse() {
+  if (isReadOnlyUniverseOpen()) return;
   const store = useGraphStore.getState();
   try {
     const initialData = await fileStorage.createUniverseFile();
@@ -27,6 +29,7 @@ export async function newUniverse() {
 }
 
 export async function openUniverse() {
+  if (isReadOnlyUniverseOpen()) return;
   const store = useGraphStore.getState();
   try {
     if (hasWork()) {
@@ -50,6 +53,7 @@ export async function openUniverse() {
 }
 
 export async function saveUniverse() {
+  if (isReadOnlyUniverseOpen()) return;
   try {
     if (fileStorage.canAutoSave()) {
       const saveResult = await fileStorage.forceSave(useGraphStore.getState());
@@ -65,6 +69,7 @@ export async function saveUniverse() {
 }
 
 export async function openRecentUniverse(recentFileEntry) {
+  if (isReadOnlyUniverseOpen()) return;
   const store = useGraphStore.getState();
   try {
     if (hasWork()) {

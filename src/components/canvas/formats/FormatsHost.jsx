@@ -10,6 +10,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Sigma, X } from 'lucide-react';
 import useGraphStore from '../../../store/graphStore.js';
+import useReadOnlyUniverse, { selectReadOnlyOpen } from '../../../store/readOnlyUniverse.js';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
 import { useViewportBounds } from '../../../hooks/useViewportBounds';
 import { useMobileLandscapeShell } from '../../../hooks/useMobileLandscapeShell.js';
@@ -17,7 +18,7 @@ import { haptic } from '../../../services/haptics.js';
 import { tokensOf } from './formula/formulaChain.js';
 import FormulaTokens from './formula/FormulaTokens.jsx';
 import FormulaComposer from './formula/FormulaComposer.jsx';
-import useFormatsStore, { dismissFormatOffer, showFormatInPlace, selectStandard } from './formatsStore.js';
+import useFormatsStore, { closeFormulaComposer, dismissFormatOffer, showFormatInPlace, selectStandard } from './formatsStore.js';
 import { findFormatCandidate } from './formatCandidates.js';
 import './formats.css';
 
@@ -132,16 +133,18 @@ export default function FormatsHost({ suppressed = false }) {
   const ready = useGraphStore(s => !!s.activeGraphId && s.isUniverseLoaded && !s.isUniverseLoading && s.hasUniverseFile);
   const busy = useCanvasUIStore(s => !!s.selectedNodeIdForPieMenu || s.abstractionCarouselVisible);
   const selectedGroupId = useCanvasUIStore(s => s.selectedGroupId);
+  const readOnly = useReadOnlyUniverse(selectReadOnlyOpen);
+  useEffect(() => { if (readOnly) closeFormulaComposer(); }, [readOnly]);
 
   const candidate = useFormatCandidate(ready);
   // A selected group's panel does the swapping, so the pill doesn't repeat it.
   const panelHasIt = candidate?.source === 'group' && candidate.sourceId === selectedGroupId;
-  const offer = !suppressed && !busy && !composing && !panelHasIt ? candidate : null;
+  const offer = !suppressed && !busy && !composing && !panelHasIt && !readOnly ? candidate : null;
 
   return (
     <>
       <FormatOffer candidate={offer} />
-      {composing && <FormulaComposer key={`${composing.at.x},${composing.at.y}`} />}
+      {composing && !readOnly && <FormulaComposer key={`${composing.at.x},${composing.at.y}`} />}
     </>
   );
 }

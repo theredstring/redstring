@@ -1,6 +1,8 @@
 import PanelIconButton from '../shared/PanelIconButton.jsx';
 import ActionRow from './ActionRow.jsx';
 import useGraphStore from '../../store/graphStore.js';
+import useReadOnlyUniverse, { selectReadOnlyOpen } from '../../store/readOnlyUniverse.js';
+import { READ_ONLY_HINT } from '../canvas/pie/readOnlyButtons.js';
 import useFormulaStarter, { count, mb } from '../canvas/formats/formula/bank/useFormulaStarter.js';
 
 /**
@@ -16,6 +18,7 @@ const dateOf = (iso) => {
 };
 
 export default function FormulaStarterRows({ onCloseSettings }) {
+  const readOnly = useReadOnlyUniverse(selectReadOnlyOpen);
   const {
     bank, disciplines, leftOf, chosen, all, toggle, toggleAll,
     plan, bytes, fit, stopNote, progress, done, error, add,
@@ -66,12 +69,12 @@ export default function FormulaStarterRows({ onCloseSettings }) {
       </div>
       <ActionRow
         title="Add to This Universe"
-        description={description}
+        description={readOnly ? READ_ONLY_HINT : description}
         actionLabel="Add"
         confirmLabel={`Add ${count(plan.equations)}?`}
         busy={!!progress}
         busyLabel="Adding…"
-        disabled={!bank || plan.equations === 0 || !!stopNote}
+        disabled={!bank || plan.equations === 0 || !!stopNote || readOnly}
         onClick={add}
       />
       {done?.rootWebId && (

@@ -7,6 +7,8 @@ import * as fileStorage from './store/fileStorage.js';
 import useHistoryStore from './store/historyStore.js';
 import { performUndo, performRedo } from './store/historyActions.js';
 import useGraphStore from './store/graphStore.js';
+import useReadOnlyUniverse, { selectReadOnlyOpen } from './store/readOnlyUniverse.js';
+import { READ_ONLY_HINT } from './components/canvas/pie/readOnlyButtons.js';
 import { requestRefresh } from './components/canvas/dialogs/refresh.js';
 
 // Undo/Redo take Cmd or Ctrl on every platform (see useCanvasKeyboard), but the
@@ -14,6 +16,8 @@ import { requestRefresh } from './components/canvas/dialogs/refresh.js';
 const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
 const UNDO_SHORTCUT = IS_MAC ? '⌘Z' : 'Ctrl+Z';
 const REDO_SHORTCUT = IS_MAC ? '⇧⌘Z' : 'Ctrl+Shift+Z';
+
+const DIMMED_ITEM = { opacity: 0.4, cursor: 'default' };
 
 const RedstringMenu = ({
   isOpen,
@@ -83,6 +87,7 @@ const RedstringMenu = ({
   // Debug used to be a top-level menu here. It is a Settings page now — one
   // surface for the switches, and one that works on a phone.
   const [linkCopied, setLinkCopied] = useState(false);
+  const readOnly = useReadOnlyUniverse(selectReadOnlyOpen);
   const menuItems = [...(showDownload ? ['Download'] : []), 'File', 'Edit', 'View', 'Connections', 'Help'];
   const menuRef = useRef(null);
 
@@ -403,11 +408,13 @@ const RedstringMenu = ({
                           role="button"
                           onMouseEnter={handleRegularSubmenuItemHover}
                           onFocus={handleRegularSubmenuItemHover}
+                          title={readOnly ? READ_ONLY_HINT : undefined}
                           onClick={() => {
+                            if (readOnly) return;
                             // OntologyImportDialog's host (ModalHosts) listens for this.
                             window.dispatchEvent(new Event('openOntologyImport'));
                           }}
-                          style={{ cursor: 'pointer' }}
+                          style={readOnly ? DIMMED_ITEM : { cursor: 'pointer' }}
                         >
                           <Library size={16} style={{ marginRight: '8px', minWidth: '16px', flexShrink: 0 }} />
                           Import Ontology
@@ -463,11 +470,12 @@ const RedstringMenu = ({
                           className={`submenu-item has-submenu ${isNestedSubmenuOpen('RecentFiles') ? 'active-submenu-parent' : ''}`}
                           tabIndex={0}
                           role="button"
-                          onClick={() => onOpenUniverse?.()}
-                          onMouseEnter={() => handleNestedSubmenuItemHover('RecentFiles')}
-                          onFocus={() => handleNestedSubmenuItemHover('RecentFiles')}
+                          title={readOnly ? READ_ONLY_HINT : undefined}
+                          onClick={() => { if (!readOnly) onOpenUniverse?.(); }}
+                          onMouseEnter={() => { if (!readOnly) handleNestedSubmenuItemHover('RecentFiles'); }}
+                          onFocus={() => { if (!readOnly) handleNestedSubmenuItemHover('RecentFiles'); }}
                           onMouseLeave={handleNestedSubmenuItemLeave}
-                          style={{ cursor: 'pointer' }}
+                          style={readOnly ? DIMMED_ITEM : { cursor: 'pointer' }}
                         >
                           <FolderOpen size={16} style={{ marginRight: '8px', minWidth: '16px', flexShrink: 0 }} />
                           Open...

@@ -45,21 +45,28 @@ export const nudgeReadOnlyUniverse = () => {
 export const setReadOnlyFailure = (failure) => useReadOnlyUniverse.setState({ failure });
 
 /**
- * `next` with the document as it is in `prev`.
+ * While a universe is open read-only, the only load it takes is its own: stamped
+ * for it by the switch that opened it. A file, a late reload of the universe left
+ * behind, anything unstamped: none of them lands under the read-only flag.
+ */
+export const readOnlyRefusesLoad = (data) => {
+  const { active } = useReadOnlyUniverse.getState();
+  return active !== null && data?._universeSlug !== active.slug;
+};
+
+/**
+ * What a write comes to while the document is kept. One that would change the
+ * document is refused whole: the rest of it (going to the web it would have
+ * made, say) only makes sense if the edit happened.
  * @param {object} prev - The whole state before the write.
  * @param {object} next - What the write returned: a partial or the whole state.
  * @returns {{ state: object, refused: boolean }}
  */
 export function withDocumentKept(prev, next) {
-  let state = next;
-  let refused = false;
-  for (const key of DOCUMENT_ROOTS) {
-    if (!next || !Object.prototype.hasOwnProperty.call(next, key) || next[key] === prev[key]) continue;
-    if (!refused) state = { ...next };
-    refused = true;
-    state[key] = prev[key];
-  }
-  return { state, refused };
+  const refused = !!next && DOCUMENT_ROOTS.some((key) => (
+    Object.prototype.hasOwnProperty.call(next, key) && next[key] !== prev[key]
+  ));
+  return { state: refused ? prev : next, refused };
 }
 
 export default useReadOnlyUniverse;

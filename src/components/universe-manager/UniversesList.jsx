@@ -812,7 +812,7 @@ const UniversesList = ({
                               title="Close"
                             />
                           )}
-                          {!isReadOnly && universes.length > 1 && (
+                          {!isReadOnly && universes.filter((u) => !u.raw?.readOnly).length > 1 && (
                             <PanelIconButton
                               icon={X}
                               size={isVerySlim ? 14 : (isSlim ? 18 : 20)}

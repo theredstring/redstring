@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import useCanvasUIStore, { setGroupAnchorLookup } from './canvasUIStore.js';
-import { isReadOnlyUniverseOpen, nudgeReadOnlyUniverse, withDocumentKept } from './readOnlyUniverse.js';
+import { isReadOnlyUniverseOpen, nudgeReadOnlyUniverse, readOnlyRefusesLoad, withDocumentKept } from './readOnlyUniverse.js';
 import { produce as immerProduce, produceWithPatches, applyPatches, enableMapSet, enablePatches, current, isDraft } from 'immer';
 import { CONNECTION_LABEL_COLOR_MODES, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_RING_WIDTH, CONNECTION_LABEL_RING_WIDTH_MIN, CONNECTION_LABEL_RING_WIDTH_MAX, CONNECTION_LABEL_MOVE_FADE_MODES, DEFAULT_CONNECTION_LABEL_MOVE_FADE, DEFAULT_CONNECTION_LABEL_TRUNCATE, DEFAULT_CONNECTION_LABEL_SPRITES, EDGE_GLOW_MODES, DEFAULT_EDGE_GLOW_MODE, DEFAULT_EDGE_GLOW_INTENSITY, clampEdgeGlowIntensity, LIFTED_THING_SHADOW_MODES, DEFAULT_LIFTED_THING_SHADOW } from '../utils/colorUtils.js';
 
@@ -1436,7 +1436,6 @@ const NAVIGATION_CHANGE_TYPES = new Set([
   'graph_expand_toggle'
 ]);
 
-const READ_ONLY_LOAD_TYPES = new Set(['load', 'reset', 'clear-universe']);
 
 // Middleware to integrate with SaveCoordinator
 const saveCoordinatorMiddleware = (config) => {
@@ -1593,7 +1592,7 @@ const saveCoordinatorMiddleware = (config) => {
       // A universe open read-only keeps its document; only a load replaces it.
       let readOnlyRefused = false;
       try {
-        if (isReadOnlyUniverseOpen() && !READ_ONLY_LOAD_TYPES.has(changeContext.type)) {
+        if (isReadOnlyUniverseOpen() && changeContext.type !== 'load') {
           const [partial, replace] = args;
           set((state) => {
             const kept = withDocumentKept(state, typeof partial === 'function' ? partial(state) : partial);
@@ -2393,10 +2392,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           pieMenuScale: parseFloat(localStorage.getItem('redstring_pie_menu_scale')) || 1.0,
           groupTitleScale: parseFloat(localStorage.getItem('redstring_group_title_scale')) || 1.0,
           groupTitleGrow: localStorage.getItem('redstring_group_title_grow') === 'true',
-          groupTitleGrowMax: parseFloat(localStorage.getItem('redstring_group_title_grow_max')) || 6.0,
+          groupTitleGrowMax: parseFloat(localStorage.getItem('redstring_group_title_grow_max')) || 8.0,
         };
       } catch (_) {
-        return { fontSize: 1.0, lineSpacing: 1.0, nodeScale: 1.0, connectionWidth: 1.0, plusSignScale: 1.0, pieMenuScale: 1.0, groupTitleScale: 1.0, groupTitleGrow: false, groupTitleGrowMax: 6.0 };
+        return { fontSize: 1.0, lineSpacing: 1.0, nodeScale: 1.0, connectionWidth: 1.0, plusSignScale: 1.0, pieMenuScale: 1.0, groupTitleScale: 1.0, groupTitleGrow: false, groupTitleGrowMax: 8.0 };
       }
     })(),
 
@@ -9846,6 +9845,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
 
     loadUniverseFromFile: (dataToLoad) => {
       try {
+        if (readOnlyRefusesLoad(dataToLoad)) {
+          console.warn('[graphStore] A read-only universe is open, refusing a load that is not its own');
+          return false;
+        }
         // CRITICAL: Prevent concurrent loads - check if a load is already in progress
         const currentState = api.getState();
         if (currentState._isLoadingUniverse) {
@@ -10019,6 +10022,10 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     mergeUniverseState: (incomingState, options = {}) => {
       const { foldSameAs = true } = options;
       try {
+        if (isReadOnlyUniverseOpen()) {
+          console.warn('[graphStore] A read-only universe is open, refusing to merge');
+          return null;
+        }
         const currentState = api.getState();
         if (currentState._isLoadingUniverse) {
           console.warn('[graphStore] Load in progress, refusing to merge');

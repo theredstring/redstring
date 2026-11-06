@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import useGraphStore from '../store/graphStore.js';
+import { isReadOnlyUniverseOpen } from '../store/readOnlyUniverse.js';
 import { bridgeEventSource, bridgeFetch, resetBridgeBackoff } from '../services/bridgeConfig.js';
 import { navigateOnGraphSwitch } from '../services/canvasNavigationService.js';
 import {
@@ -1053,6 +1054,7 @@ const BridgeClient = () => {
       saveCoordinator,
       bridgeFetch,
       exportToRedstring,
+      isReadOnly: isReadOnlyUniverseOpen,
       log: (...a) => console.log('[BridgeClient]', ...a)
     });
     coexistence.start();

@@ -43,7 +43,7 @@ import { oauthFetch } from './bridgeConfig.js';
 import { storageWrapper } from '../utils/storageWrapper.js';
 import { clearSharedLinkFromAddress, parseSharedLink, readSharedLinkFromAddress } from './sharedLink.js';
 import { describeSharedLinkFailure, fetchSharedUniverse, suggestUniverseNameFromUrl } from './externalUniverseLoader.js';
-import { setReadOnlyFailure, setReadOnlyUniverse } from '../store/readOnlyUniverse.js';
+import { isReadOnlyUniverseOpen, setReadOnlyFailure, setReadOnlyUniverse } from '../store/readOnlyUniverse.js';
 import {
   storeFileHandleMetadata,
   getFileHandleMetadata,
@@ -6242,6 +6242,7 @@ class UniverseBackend {
     const universe = this.getUniverse(universeSlug);
     if (!universe) throw new Error(`Universe not found: ${universeSlug}`);
     if (!sha) throw new Error('No revision given to restore');
+    if (isReadOnlyUniverseOpen()) throw new Error('Close the read-only universe first, then restore');
 
     const provider = await this.createProviderForUniverse(universe);
     if (!provider) throw new Error('Could not reach the repository to restore from');
@@ -6300,6 +6301,7 @@ class UniverseBackend {
   async restoreUniverseBackup(universeSlug, backupId) {
     const universe = this.getUniverse(universeSlug);
     if (!universe) throw new Error(`Universe not found: ${universeSlug}`);
+    if (isReadOnlyUniverseOpen()) throw new Error('Close the read-only universe first, then restore');
     if (this.getActiveUniverse()?.slug !== universe.slug) {
       throw new Error('Open this universe to restore one of its backups');
     }

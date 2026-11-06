@@ -559,8 +559,8 @@ export const groupLabelMetrics = (textSettings) => {
 // their usual size and the largest stand out.
 export const GROUP_TITLE_GROW_FROM = 1600;
 export const GROUP_TITLE_GROW_TO = 48000;
-export const GROUP_TITLE_GROW_MAX_DEFAULT = 6.0;
-export const GROUP_TITLE_GROW_EASE = 2;
+export const GROUP_TITLE_GROW_MAX_DEFAULT = 8.0;
+export const GROUP_TITLE_GROW_EASE = 1.75;
 
 /** `{ from, to, max }` for labelGrowthFactor, or null when titles keep one size. */
 export const groupTitleGrowthOf = (textSettings) => {

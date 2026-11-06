@@ -27,6 +27,7 @@ import { importFromRedstring } from '../../formats/redstringFormat.js';
 import { hasCapability } from '../../utils/deviceDetection.js';
 import { persistentAuth } from '../../services/persistentAuth.js';
 import { formatBytes } from '../../utils/formatBytes.js';
+import { isReadOnlyUniverseOpen } from '../../store/readOnlyUniverse.js';
 
 const kindLabel = (kind) => {
   switch (kind) {
@@ -566,7 +567,7 @@ const ExternalLinkLoadModal = ({
             {/* The three options above all make a NEW universe. This one is the
                 odd one out — it changes the universe you're already in — so it
                 sits below the rule, outlined rather than filled. */}
-            {onMergeIntoCurrent && currentUniverseName && (
+            {onMergeIntoCurrent && currentUniverseName && !isReadOnlyUniverseOpen() && (
               <div style={{
                 marginTop: '6px',
                 paddingTop: '10px',

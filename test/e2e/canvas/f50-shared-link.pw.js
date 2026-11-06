@@ -234,6 +234,33 @@ test('F50 your own universe is untouched by a visit, and closing goes back to it
   expect((await store(page)).names).toContain('Mine Now');
 });
 
+test('F50 while a link loads, the screen names that universe, not yours', async ({ page }) => {
+  await hostFile(page);
+  await page.goto(LINK);
+  await expect(page.getByTestId('read-only-bar')).toBeVisible({ timeout: 30_000 });
+  await pillSettled(page);
+  await page.getByTestId('read-only-make-copy').click();
+  await expect(page.getByTestId('read-only-bar')).toBeHidden();
+  await page.waitForTimeout(6_000);
+
+  // Another link, held on the way so the loading screen stays up.
+  const other = 'https://files.example.test/elsewhere.redstring';
+  let release;
+  const held = new Promise((resolve) => { release = resolve; });
+  await page.route(other, async (route) => {
+    await held;
+    await route.fulfill({ body: file, headers: { 'access-control-allow-origin': '*' } });
+  });
+  await page.goto(`/open?url=${encodeURIComponent(other)}`);
+  await expect(page.getByText('Loading elsewhere')).toBeVisible({ timeout: 30_000 });
+  await page.waitForTimeout(1_000);
+  await expect(page.getByText('Loading elsewhere')).toBeVisible();
+  await expect(page.getByText('Loading atlas')).toBeHidden();
+
+  release();
+  await expect(page.getByTestId('read-only-bar')).toBeVisible({ timeout: 30_000 });
+});
+
 test('F50 a universe kept only in this browser keeps its edits across a reload', async ({ page }) => {
   await page.route(/^https?:\/\/(?!localhost|127\.0\.0\.1)/, (route) => route.abort());
   await page.goto('/');

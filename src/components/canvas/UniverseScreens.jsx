@@ -5,6 +5,8 @@ import PanelIconButton from '../shared/PanelIconButton.jsx';
 import useGraphStore from '../../store/graphStore.js';
 import useCanvasUIStore from '../../store/canvasUIStore.js';
 import universeManagerService from '../../services/universeManagerService.js';
+import { readSharedLinkFromAddress } from '../../services/sharedLink.js';
+import { suggestUniverseNameFromUrl } from '../../services/externalUniverseLoader.js';
 import { useTheme } from '../../hooks/useTheme.js';
 import { useMobileLandscapeShell } from '../../hooks/useMobileLandscapeShell.js';
 import { HEADER_HEIGHT } from '../../constants';
@@ -23,10 +25,15 @@ function UniverseLoading() {
    * Which universe the loading screen is waiting on. Read once when the wait
    * starts rather than subscribed to: the backend's own record is the only
    * place the name exists before the universe has been loaded into the store,
-   * and it does not change for the life of a single wait.
+   * and it does not change for the life of a single wait. A page opened on a
+   * shared link is waiting on that universe, whatever the backend has on record.
    */
-  const [loadingUniverseName, setLoadingUniverseName] = useState(null);
+  const [link] = useState(readSharedLinkFromAddress);
+  const [loadingUniverseName, setLoadingUniverseName] = useState(
+    () => (link ? suggestUniverseNameFromUrl(link) : null)
+  );
   useEffect(() => {
+    if (link) return undefined;
     let cancelled = false;
     (async () => {
       try {
@@ -37,7 +44,7 @@ function UniverseLoading() {
       } catch { /* the generic wording is a fine fallback */ }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [link]);
 
   // Held until the universe actually arrives, or the user says to stop
   // waiting. See UniverseLoadingScreen for why there is no longer a timer here.

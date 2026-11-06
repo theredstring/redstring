@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import useGraphStore from '../../store/graphStore.js';
+import useReadOnlyUniverse, { selectReadOnlyOpen } from '../../store/readOnlyUniverse.js';
+import { READ_ONLY_HINT } from '../canvas/pie/readOnlyButtons.js';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
 import ActionRow from './ActionRow.jsx';
 import FormulaBankRows from './FormulaBankRows.jsx';
@@ -54,6 +56,7 @@ const DataSection = ({ onCloseSettings }) => {
   const [discovery, setDiscovery] = useState(() => measureDiscoveryHistory());
   // A line under a row once its action has run: what happened, or why not.
   const [notes, setNotes] = useState({});
+  const readOnly = useReadOnlyUniverse(selectReadOnlyOpen);
   const [busy, setBusy] = useState(null);
   const importInput = useRef(null);
 
@@ -150,9 +153,10 @@ const DataSection = ({ onCloseSettings }) => {
       <div className="settings-section-subtitle">Repair</div>
       <ActionRow
         title="Repair Web Links"
-        description={notes.repair || 'Reconnect Things to the Webs that define them'}
+        description={readOnly ? READ_ONLY_HINT : (notes.repair || 'Reconnect Things to the Webs that define them')}
         actionLabel="Repair"
         busy={busy === 'repair'}
+        disabled={readOnly}
         onClick={() => run('repair', () => {
           const repaired = useGraphStore.getState().repairGraphLinkages();
           return repaired > 0 ? `Repaired ${plural(repaired, 'link', 'links')}` : 'Nothing needed repair';

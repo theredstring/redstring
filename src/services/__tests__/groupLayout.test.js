@@ -12,6 +12,7 @@ import {
   groupIdFromPlaceholderId,
   labelBoxFor,
   groupTitleGrowthOf,
+  GROUP_TITLE_GROW_EASE,
   GROUP_LAYOUT_CONSTANTS as C,
 } from '../groupLayout.js';
 
@@ -386,8 +387,9 @@ describe('computeGroupLayout', () => {
 });
 
 describe('titles that grow with their group', () => {
-  // 1x at 1000 wide, 3x at 4000: one doubling of two is t = 1/2, eased to 1/4, so 1.5x at 2000.
+  // 1x at 1000 wide, 3x at 4000: at 2000, one doubling of two is t = 1/2, then eased.
   const growth = { from: 1000, to: 4000, max: 3 };
+  const atTwoThousand = 1 + 2 * 0.5 ** GROUP_TITLE_GROW_EASE;
   const wideGroup = (ctx, w) => {
     addNode(ctx, 'a', 0, 0, 200, 150);
     addNode(ctx, 'b', w - 200, 0, 200, 150);
@@ -415,12 +417,12 @@ describe('titles that grow with their group', () => {
     const g = wideGroup(ctx, 2000 - margin * 2);
     const base = computeGroupLayout(g, { ...ctx, labelGrowth: null, _cache: new Map() });
     const r = computeGroupLayout(g, ctx);
-    expect(r.label.growth).toBeCloseTo(1.5);
-    expect(r.label.w).toBeCloseTo(base.label.w * 1.5);
-    expect(r.label.h).toBeCloseTo(base.label.h * 1.5);
-    expect(r.label.fontSize).toBeCloseTo(C.fontSize * 1.5);
+    expect(r.label.growth).toBeCloseTo(atTwoThousand);
+    expect(r.label.w).toBeCloseTo(base.label.w * atTwoThousand);
+    expect(r.label.h).toBeCloseTo(base.label.h * atTwoThousand);
+    expect(r.label.fontSize).toBeCloseTo(C.fontSize * atTwoThousand);
     expect(r.rect).toEqual(base.rect);
-    expect(r.nodeGroupRect.h - base.nodeGroupRect.h).toBeCloseTo(base.label.h * 0.5);
+    expect(r.nodeGroupRect.h - base.nodeGroupRect.h).toBeCloseTo(base.label.h * (atTwoThousand - 1));
   });
 
   it('stops at the ceiling', () => {

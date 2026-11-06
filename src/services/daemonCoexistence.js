@@ -21,6 +21,7 @@
  * @param {object}   [deps.saveCoordinator]   needs setEnabled(bool); optional
  * @param {function} deps.bridgeFetch         (path, options) => Promise<Response>
  * @param {function} deps.exportToRedstring   (state) => redstring JSON
+ * @param {function} [deps.isReadOnly]         () => whether a read-only universe is open
  * @param {number}   [deps.pollMs=3000]
  * @param {number}   [deps.debounceMs=800]
  * @param {function} [deps.log]
@@ -30,6 +31,7 @@ export function createDaemonCoexistence({
   saveCoordinator = null,
   bridgeFetch,
   exportToRedstring,
+  isReadOnly = () => false,
   pollMs = 3000,
   debounceMs = 800,
   log = () => {}
@@ -90,6 +92,8 @@ export function createDaemonCoexistence({
 
   async function forwardEdit() {
     if (!engaged) return;
+    // What's on screen isn't the daemon's universe and mustn't become it.
+    if (isReadOnly()) return;
     const redstring = exportToRedstring(useGraphStore.getState());
     try {
       const resp = await getJson('/api/store/import', {

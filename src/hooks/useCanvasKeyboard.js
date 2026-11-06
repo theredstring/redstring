@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import useGraphStore from '../store/graphStore.js';
 import useCanvasUIStore from '../store/canvasUIStore.js';
+import { isReadOnlyUniverseOpen, nudgeReadOnlyUniverse } from '../store/readOnlyUniverse.js';
 import { DEFAULT_KEYBOARD_SETTINGS } from '../components/canvas/canvasDefaults.js';
 import { performUndo, performRedo } from '../store/historyActions.js';
 import saveCoordinator from '../services/SaveCoordinator.js';
@@ -717,6 +718,15 @@ export const useCanvasKeyboard = ({
                     onClipboardChange?.();
                     return;
                 }
+            }
+
+            // Nothing here to cut, paste or delete: the selection stays as it is.
+            if (isReadOnlyUniverseOpen() && (
+                (cmdOrCtrl && ['x', 'v'].includes(e.key.toLowerCase())) || e.key === 'Delete' || e.key === 'Backspace'
+            )) {
+                e.preventDefault();
+                nudgeReadOnlyUniverse();
+                return;
             }
 
             // Cut (Ctrl/Cmd+X)

@@ -7,12 +7,14 @@
  * exit (formulaSpawn.markFormulaLeaving): the entrance backwards.
  */
 import useGraphStore from '../../../../store/graphStore.js';
+import { isReadOnlyUniverseOpen } from '../../../../store/readOnlyUniverse.js';
 import { anchorIdFromOpenGroupId, projectGraphView } from '../../../../core/openDefinitions.js';
 import useFormatsStore, { selectStandard } from '../formatsStore.js';
 import { computeFormulaObjects } from './formulaObjects.js';
 import { markFormulaLeaving } from './formulaSpawn.js';
 
 export function deleteFormula(graphId, groupId) {
+  if (isReadOnlyUniverseOpen()) return false; // No exit to play: it stays.
   const st = useGraphStore.getState();
   const openAnchorId = anchorIdFromOpenGroupId(groupId);
   const exists = projectGraphView(st, graphId)?.groups?.has(groupId);

@@ -1,5 +1,6 @@
 import { useRef } from 'react';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
+import { isReadOnlyUniverseOpen } from '../../../store/readOnlyUniverse.js';
 import { PLUS_SIGN_SIZE } from '../../../constants';
 import { clientToCanvas } from '../../../utils/canvas/viewportMath.js';
 import { formatAnchorAt, anchorBoxOf } from '../formats/replaced.js';
@@ -56,6 +57,7 @@ export function useControllerTargets({
     // is the same size as everyone else's.
     halfHit: Math.max(44, PLUS_SIGN_SIZE * (textSettings?.plusSignScale ?? 1.0)) / 2,
     create: (clientX, clientY) => {
+      if (isReadOnlyUniverseOpen()) return;
       const rect = containerRef.current?.getBoundingClientRect();
       if (!rect) return;
       const { x, y } = clientToCanvas(clientX, clientY, rect, panOffsetRef.current, zoomLevelRef.current, canvasSize);

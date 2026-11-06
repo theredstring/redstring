@@ -5,7 +5,8 @@
 import { Profiler, useEffect } from 'react';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
 import { useGroupPieStore } from '../pie/groupPieButtons.js';
-import { useThingGroupPromptStore } from '../thingGroupPrompt/thingGroupPrompt.js';
+import { closeThingGroupPrompt, useThingGroupPromptStore } from '../thingGroupPrompt/thingGroupPrompt.js';
+import useReadOnlyUniverse, { selectReadOnlyOpen } from '../../../store/readOnlyUniverse.js';
 import { onRenderProbe } from '../../../utils/perf/renderProbe.js';
 import PlusSign from '../../../PlusSign.jsx';
 import PlusSignBubbles from './PlusSignBubbles.jsx';
@@ -30,6 +31,14 @@ export default function SvgOverlays({ ctx }) {
     if (useThingGroupPromptStore.getState().prompt) return;
     setPlusSign(ps => ps && { ...ps, mode: 'disappear' });
   }, [pieShown, nodePieTarget]);
+
+  // A read-only universe opening takes along a plus sign left out in the last one.
+  const readOnly = useReadOnlyUniverse(selectReadOnlyOpen);
+  useEffect(() => {
+    if (!readOnly) return;
+    closeThingGroupPrompt();
+    setPlusSign(null);
+  }, [readOnly]);
 
   return (
     <Profiler id="SvgOverlays" onRender={onRenderProbe}>
