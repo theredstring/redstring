@@ -795,15 +795,13 @@ test('F50 what can\'t be done isn\'t offered, and the pill stays quiet about it'
   const before = await nudges();
 
   // The header's add and bookmark are there, faded, and do nothing.
-  for (const key of ['Make a copy to edit']) {
-    const faded = page.locator(`header .header-action-btn[title="${key}"]`);
-    await expect(faded).toHaveCount(3); // Auto Layout, bookmark, add.
-    for (const button of await faded.all()) {
-      await expect(button).toHaveAttribute('data-disabled', 'true');
-      await button.click({ force: true });
-    }
+  const faded = page.locator('header .header-action-btn[title="Make a copy to edit"]');
+  await expect(faded).toHaveCount(3); // Auto Layout, bookmark, add.
+  for (const button of await faded.all()) {
+    await expect(button).toHaveAttribute('data-disabled', 'true');
+    await button.click({ force: true });
   }
-  await expect(page.locator('[data-testid="new-web-prompt"], .unified-selector')).toHaveCount(0);
+  await expect(page.getByPlaceholder(/search/i)).toHaveCount(0);
 
   // A quick drag off a Thing is as if it can't be done: no line, nothing said.
   const box = await page.locator('svg.canvas g.node').nth(2).boundingBox();
@@ -853,9 +851,80 @@ test('F50 the Wizard is offered only what looks', async ({ page }) => {
   });
   await page.locator('.panel-container.right [title="Ask The Wizard"]').first().click();
   await expect(page.getByText('Explain this Thing')).toBeVisible();
-  await expect(page.getByText('Ask something specific…')).toBeVisible();
-  await expect(page.getByText(/abstraction ladder/)).toHaveCount(0);
-  await expect(page.getByText('Fill in details')).toHaveCount(0);
+  await expect(page.getByPlaceholder('Ask something specific…')).toBeVisible();
+  await expect(page.getByText('Define its components')).toHaveCount(0);
+  await expect(page.getByText('Fill in its details')).toHaveCount(0);
+});
+
+test('F50 the Wizard in a visit reads and says so; its chat stays behind', async ({ page }) => {
+  const asks = [];
+  const respond = (route) => {
+    if (route.request().method() === 'OPTIONS') {
+      return route.fulfill({ status: 204, headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': '*' } });
+    }
+    if (!route.request().url().includes('chat/completions')) return route.abort();
+    asks.push(route.request().postDataJSON());
+    return route.fulfill({
+      status: 200,
+      headers: { 'content-type': 'text/event-stream', 'access-control-allow-origin': '*' },
+      body: 'data: {"choices":[{"delta":{"content":"Only looking."},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n',
+    });
+  };
+  await page.route(/^https?:\/\/(?!localhost|127\.0\.0\.1)/, (route) => {
+    const url = route.request().url();
+    if (url === SOURCE) return route.fulfill({ status: 200, body: file, headers: { 'access-control-allow-origin': '*' } });
+    return url.includes('openrouter.ai') ? respond(route) : route.abort();
+  });
+  await page.goto(LINK);
+  await expect(page.getByTestId('read-only-bar')).toBeVisible({ timeout: 30_000 });
+  await waitForCanvasReady(page);
+  await pillSettled(page);
+  await page.evaluate(async () => {
+    const { apiKeyManager } = await import('/src/services/apiKeyManager.js').then((m) => ({ apiKeyManager: m.default || m.apiKeyManager }));
+    const endpoint = 'https://openrouter.ai/api/v1/chat/completions';
+    await apiKeyManager.storeAPIKey('sk-or-test', 'openrouter', { endpoint, model: 'test/model' });
+    const { recordAIConsent } = await import('/src/services/aiConsent.js');
+    recordAIConsent('openrouter', endpoint);
+  });
+  await page.reload(); // The Wizard reads its key once, as it opens.
+  await expect(page.getByTestId('read-only-bar')).toBeVisible({ timeout: 30_000 });
+  await waitForCanvasReady(page);
+  await pillSettled(page);
+  await page.evaluate(async () => {
+    const { default: useCanvasUIStore } = await import('/src/store/canvasUIStore.js');
+    useCanvasUIStore.getState().openLeftPanelView('ai');
+  });
+  const ask = async (text) => {
+    const input = page.locator('.ai-input');
+    await expect(input).toBeEnabled();
+    await input.fill(text);
+    await page.locator('.ai-send-button').click();
+  };
+  const systemOf = (body) => JSON.stringify(body.messages.filter((m) => m.role === 'system'));
+  const toolsOf = (body) => (body.tools || []).map((t) => t.function?.name || t.name);
+
+  await ask('What is this?');
+  await expect.poll(() => asks.length, { timeout: 20_000 }).toBe(1);
+  expect(systemOf(asks[0])).toContain('This universe is read only');
+  expect(toolsOf(asks[0])).toContain('readGraph');
+  expect(toolsOf(asks[0])).not.toContain('createNode');
+  await expect(page.getByText('Only looking.')).toBeVisible();
+  const chats = () => page.evaluate(() => JSON.parse(localStorage.getItem('rs.aiChat.manifest') || '{}').conversations?.length ?? 0);
+  await expect.poll(chats).toBeGreaterThan(0);
+  const chatsInVisit = await chats();
+
+  // Out of the visit, the next ask can edit and starts with none of what it read.
+  await page.evaluate(async () => {
+    const { default: backend } = await import('/src/services/universeBackend.js');
+    await backend.createUniverse('Fresh', { enableLocal: false, enableGit: false, sourceOfTruth: 'browser' });
+  });
+  await expect(page.getByTestId('read-only-bar')).toBeHidden();
+  await ask('Add a Thing');
+  await expect.poll(() => asks.length, { timeout: 20_000 }).toBe(2);
+  expect(systemOf(asks[1])).not.toContain('This universe is read only');
+  expect(toolsOf(asks[1])).toContain('createNode');
+  expect(JSON.stringify(asks[1].messages)).not.toContain('Only looking.');
+  await expect.poll(chats).toBe(chatsInVisit + 1);
 });
 
 test('F50 a second link takes over the address, so a reload comes back to it', async ({ page }) => {
