@@ -46,6 +46,7 @@ import {
   collectDescendantGroupIds,
 } from '../services/groupLayout.js';
 import { debugLogSync } from '../utils/debugLogger.js';
+import { getDeviceInfo } from '../utils/deviceDetection.js';
 import { CANVAS_COLORS } from '../utils/themeColors.js';
 import {
   mapOpenDefinitions,
@@ -194,7 +195,7 @@ export const TRACKPAD_PAN_GLIDE_STRENGTH_DEFAULT = 0.4;
  * @property {number} edgeGlowIntensity - Multiplier on how strongly those flares read: their size and opacity together, over whatever appearance `edgeGlowMode` picked.
  * @property {string} edgeGlowMode - `'off'|'fast'|'fancy'|'adaptive'` — how the flares that ride the viewport border pointing at off-screen Things are drawn. `'adaptive'` picks between the other two by how many Things the open web holds.
  * @property {string} liftedThingShadow - `'off'|'fast'|'fancy'` — the shadow under a Thing lifted by a drag: none, stacked low-alpha rects, or a blurred drop-shadow filter.
- * @property {boolean} showZoomBar - Whether the canvas zoom bar is shown.
+ * @property {boolean} showZoomBar - Whether the canvas zoom bar is shown. Until it is chosen on this device: off on phones and tablets, on elsewhere.
  * @property {string} zoomBarPosition - `'bottom'|'left'|'right'` (default `'right'`) — where the zoom bar sits: horizontal above the TypeList, or vertical down one side under that side's panel toggle.
  * @property {boolean} showHoverPreview - Whether hovering a node shows a preview card.
  * @property {boolean} hoverPreviewZoomOnly - When true, the hover preview only appears while zoomed out (small on-canvas text); when false it appears at any zoom.
@@ -2227,7 +2228,12 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     })(),
     showZoomBar: (() => {
       try {
-        return localStorage.getItem('redstring_show_zoom_bar') !== 'false';
+        const saved = localStorage.getItem('redstring_show_zoom_bar');
+        if (saved !== null) return saved !== 'false';
+        // Never chosen on this device. Phones and tablets have the pinch, so
+        // the bar starts off there; turning it on in Settings is remembered.
+        const { isMobile, isTablet } = getDeviceInfo();
+        return !isMobile && !isTablet;
       } catch (_) {
         return true;
       }

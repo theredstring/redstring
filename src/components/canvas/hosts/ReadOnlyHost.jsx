@@ -11,7 +11,7 @@ import useReadOnlyUniverse, { setReadOnlyFailure } from '../../../store/readOnly
 import { useBottomPanelTop } from '../../../store/bottomPanelTop.js';
 import { useTheme } from '../../../hooks/useTheme.js';
 import { useViewportBounds } from '../../../hooks/useViewportBounds';
-import { DEFAULT_ZOOM_BAR_POSITION, OVER_PANELS_Z_INDEX, isExclusivePanelMode } from '../../../constants';
+import { DEFAULT_ZOOM_BAR_POSITION, HEADER_HEIGHT, OVER_PANELS_Z_INDEX, isExclusivePanelMode } from '../../../constants';
 import { buildAppLink, clearSharedLinkFromAddress, isInstalledApp } from '../../../services/sharedLink.js';
 import { makeCopyOfOpenUniverse } from '../actions/makeCopy.js';
 
@@ -19,6 +19,9 @@ import { makeCopyOfOpenUniverse } from '../actions/makeCopy.js';
 // leave, and above a control panel.
 const BOTTOM_GAP = 20;
 const PANEL_GAP = 12;
+// At or under this window width the centered pill reaches across the TypeList's
+// round toggle, which stays in the corner when the TypeList is closed.
+const PILL_MEETS_TOGGLE_WIDTH = 540;
 
 /**
  * The read-only universe's pill: that it's read only, and the way to make it
@@ -88,10 +91,14 @@ const ReadOnlyHost = () => {
 
   // The middle of the window, as the other pills are: on top of a control panel
   // when one is up, otherwise just over the TypeList (and the zoom bar when it
-  // shares the strip).
+  // shares the strip). On a phone it keeps that height with the TypeList closed
+  // too, to stay over the toggle.
+  const stripBelow = viewportBounds.windowWidth <= PILL_MEETS_TOGGLE_WIDTH
+    ? HEADER_HEIGHT
+    : viewportBounds.bottomReserved;
   const bottom = bottomPanelTop !== null
     ? bottomPanelTop + PANEL_GAP
-    : viewportBounds.bottomReserved + BOTTOM_GAP + (zoomBarBelow ? ZOOM_BAR_HEIGHT + 8 : 0);
+    : stripBelow + BOTTOM_GAP + (zoomBarBelow ? ZOOM_BAR_HEIGHT + 8 : 0);
 
   let wrapperClass = 'read-only-pill-wrapper';
   if (animationState === 'popping') wrapperClass += ' is-popping';
