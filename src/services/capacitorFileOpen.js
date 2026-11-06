@@ -13,11 +13,12 @@
  * the native git-read cap), and the text goes through the ordinary import,
  * which sanitizes it and always creates a NEW universe.
  *
- * Android has no VIEW intent filter for .redstring yet, so this never fires
- * there.
+ * Android has no VIEW intent filter for .redstring yet, so files never arrive
+ * there. Shared links arrive here on both platforms, and open read-only.
  */
 
 import { GIT_READ_CAP_NATIVE_BYTES } from './gitNativeProvider.js';
+import { parseSharedLink } from './sharedLink.js';
 
 export const OPEN_FILE_CAP_BYTES = GIT_READ_CAP_NATIVE_BYTES;
 
@@ -91,13 +92,15 @@ export async function handleOpenedUrl(url, { importText, notify = () => {}, fsMo
  * `appUrlOpen` can name the same file; each URL is handled once per session.
  * @returns {Promise<() => void>} cleanup
  */
-export async function registerCapacitorFileOpen({ importText, notify, appModule } = {}) {
+export async function registerCapacitorFileOpen({ importText, openLink, notify, appModule } = {}) {
   const { App } = appModule || await import('@capacitor/app');
   const seen = new Set();
   const handle = (url) => {
     if (!url || seen.has(url)) return;
     seen.add(url);
-    handleOpenedUrl(url, { importText, notify });
+    const sharedSource = parseSharedLink(url);
+    if (sharedSource) openLink?.(sharedSource);
+    else handleOpenedUrl(url, { importText, notify });
   };
 
   const listener = await App.addListener('appUrlOpen', (event) => handle(event?.url));

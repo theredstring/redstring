@@ -162,6 +162,7 @@ const GlobalContextMenu = () => {
   };
 
   const handleSelect = (option) => {
+    if (option.disabled) return;
     if (option.action && typeof option.action === 'function') {
       option.action();
     }

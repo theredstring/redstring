@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import useCanvasUIStore, { setGroupAnchorLookup } from './canvasUIStore.js';
+import { isReadOnlyUniverseOpen, nudgeReadOnlyUniverse, withDocumentKept } from './readOnlyUniverse.js';
 import { produce as immerProduce, produceWithPatches, applyPatches, enableMapSet, enablePatches, current, isDraft } from 'immer';
 import { CONNECTION_LABEL_COLOR_MODES, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_RING_WIDTH, CONNECTION_LABEL_RING_WIDTH_MIN, CONNECTION_LABEL_RING_WIDTH_MAX, CONNECTION_LABEL_MOVE_FADE_MODES, DEFAULT_CONNECTION_LABEL_MOVE_FADE, DEFAULT_CONNECTION_LABEL_TRUNCATE, DEFAULT_CONNECTION_LABEL_SPRITES, EDGE_GLOW_MODES, DEFAULT_EDGE_GLOW_MODE, DEFAULT_EDGE_GLOW_INTENSITY, clampEdgeGlowIntensity, LIFTED_THING_SHADOW_MODES, DEFAULT_LIFTED_THING_SHADOW } from '../utils/colorUtils.js';
 
@@ -1435,6 +1436,8 @@ const NAVIGATION_CHANGE_TYPES = new Set([
   'graph_expand_toggle'
 ]);
 
+const READ_ONLY_LOAD_TYPES = new Set(['load', 'reset', 'clear-universe']);
+
 // Middleware to integrate with SaveCoordinator
 const saveCoordinatorMiddleware = (config) => {
   let saveCoordinator = null;
@@ -1587,8 +1590,23 @@ const saveCoordinatorMiddleware = (config) => {
       // `ignore: true` from a failed undo silently suppresses every later
       // recording, which is precisely the class of bug the synchronous reset exists
       // to prevent.
+      // A universe open read-only keeps its document; only a load replaces it.
+      let readOnlyRefused = false;
       try {
-        set(...args);
+        if (isReadOnlyUniverseOpen() && !READ_ONLY_LOAD_TYPES.has(changeContext.type)) {
+          const [partial, replace] = args;
+          set((state) => {
+            const kept = withDocumentKept(state, typeof partial === 'function' ? partial(state) : partial);
+            readOnlyRefused = kept.refused;
+            return kept.state;
+          }, replace);
+          if (readOnlyRefused) {
+            currentPatches = null;
+            currentInverse = null;
+          }
+        } else {
+          set(...args);
+        }
       } catch (error) {
         patchListener = null;
         changeContext = { type: 'unknown' };
@@ -1634,6 +1652,9 @@ const saveCoordinatorMiddleware = (config) => {
       const optedOut = changeContext.ignore || isNonRecordableType(changeContext.type, !!historyTxn);
       // Intermediate drag frames are not edits; only the drop is.
       const isUnfinalizedDrag = POSITION_TYPES.has(changeContext.type) && !changeContext.finalize;
+
+      // Answers something the person just did, not a background writer.
+      if (readOnlyRefused && !optedOut && globalThis.navigator?.userActivation?.isActive) nudgeReadOnlyUniverse();
 
       if (!optedOut && !isUnfinalizedDrag && docPatches.length > 0) {
         // An abort belongs to the same coalesce group as the edit it ends: the

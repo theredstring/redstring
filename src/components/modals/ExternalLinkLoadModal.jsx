@@ -6,7 +6,7 @@ import {
   FileText,
   HardDrive,
   GitBranch,
-  EyeOff,
+  Eye,
   ArrowLeft,
   Search,
   Lock,
@@ -22,6 +22,7 @@ import {
   listRedstringFilesInGithub,
   suggestUniverseNameFromUrl
 } from '../../services/externalUniverseLoader.js';
+import { unwrapSharedLink } from '../../services/sharedLink.js';
 import { importFromRedstring } from '../../formats/redstringFormat.js';
 import { hasCapability } from '../../utils/deviceDetection.js';
 import { persistentAuth } from '../../services/persistentAuth.js';
@@ -65,7 +66,7 @@ const ExternalLinkLoadModal = ({
   onClose,
   onPublishToRepo,
   onSaveAsLocalFile,
-  onKeepInMemory,
+  onOpenReadOnly,
   onMergeIntoCurrent,
   currentUniverseName
 }) => {
@@ -119,7 +120,7 @@ const ExternalLinkLoadModal = ({
 
   useEffect(() => {
     if (preview || publishPhase) return;
-    const c = classifyUrl(url);
+    const c = classifyUrl(unwrapSharedLink(url));
     setClassification(c);
     setError(null);
     setFiles([]);
@@ -588,13 +589,13 @@ const ExternalLinkLoadModal = ({
               borderTop: `1px dashed ${theme.canvas.border}`
             }}>
               <DialogOption
-                icon={EyeOff}
+                icon={Eye}
                 // The way out of the choice rather than one of its doors.
                 tone="quiet"
-                label="Just view (won't persist)"
-                description="Data lives in memory only. Lost on reload."
+                label="Just view (read only)"
+                description="Nothing is saved. Make a copy any time to keep it."
                 disabled={busy}
-                onClick={() => runSimpleDestination(onKeepInMemory)}
+                onClick={() => runSimpleDestination(onOpenReadOnly)}
               />
             </div>
           </div>

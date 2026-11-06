@@ -49,6 +49,7 @@ import UniverseLinkingModal from './components/modals/UniverseLinkingModal.jsx';
 import Modal from './components/shared/Modal.jsx';
 import RepositorySelectionModal from './components/modals/RepositorySelectionModal.jsx';
 import ExternalLinkLoadModal from './components/modals/ExternalLinkLoadModal.jsx';
+import { makeCopyOfOpenUniverse } from './components/canvas/actions/makeCopy.js';
 import ExportUniverseModal from './components/modals/ExportUniverseModal.jsx';
 import ConfirmDialog from './components/shared/ConfirmDialog.jsx';
 import LocalFileConflictDialog from './components/shared/LocalFileConflictDialog.jsx';
@@ -4077,6 +4078,11 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         onDeleteUniverse={handleDeleteUniverse}
         onRenameUniverse={handleRenameUniverse}
         onMergeUniverse={handleMergeUniverse}
+        onMakeCopy={makeCopyOfOpenUniverse}
+        onCloseReadOnly={async () => {
+          const { default: universeBackend } = await import('./services/universeBackend.js');
+          await universeBackend.closeReadOnlyUniverse();
+        }}
         onLinkRepo={handleAttachRepo}
         onLinkLocalFile={handleLinkLocalFile}
         onCreateLocalFile={handleCreateLocalFile}
@@ -4533,16 +4539,9 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         currentUniverseName={
           serviceState.universes.find(u => u.slug === serviceState.activeUniverseSlug)?.name || null
         }
-        onKeepInMemory={async (storeState, suggestedName, sourceUrl) => {
-          await universeManagerService.createUniverse(suggestedName, {
-            enableLocal: false,
-            enableGit: false
-          });
-
-          const state = useGraphStore.getState();
-          state.loadUniverseFromFile(storeState);
-          state.setUniverseConnected(true);
-
+        onOpenReadOnly={async (storeState, suggestedName, sourceUrl) => {
+          const { default: universeBackend } = await import('./services/universeBackend.js');
+          await universeBackend.openReadOnlyUniverse(sourceUrl);
           setExternalLinkModalOpen(false);
         }}
       />

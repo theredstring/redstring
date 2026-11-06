@@ -196,13 +196,21 @@ export async function fetchRedstringJson(rawUrl, { maxBytes = maxExternalUnivers
   try {
     res = await fetch(parsedUrl.href, { credentials: 'omit' });
   } catch (err) {
-    throw new Error(`Network error: ${err.message || err}`);
+    const error = new Error(`Network error: ${err.message || err}`);
+    error.code = 'UNREACHABLE';
+    throw error;
   }
 
   if (!res.ok) {
-    throw new Error(`Fetch failed: HTTP ${res.status} ${res.statusText}`);
+    const error = new Error(`Fetch failed: HTTP ${res.status} ${res.statusText}`);
+    error.status = res.status;
+    throw error;
   }
 
+  return parseRedstringResponse(res, maxBytes);
+}
+
+async function parseRedstringResponse(res, maxBytes) {
   const text = await readTextCapped(res, maxBytes);
   if (!text || !text.trim()) {
     throw new Error('File is empty');
@@ -217,6 +225,74 @@ export async function fetchRedstringJson(rawUrl, { maxBytes = maxExternalUnivers
   } catch (err) {
     throw new Error(`Invalid JSON: ${err.message}`);
   }
+}
+
+/**
+ * A file the anonymous read couldn't get, read as the person. GitHub answers a
+ * private repo with the same 404 as a missing file, so this is the only way to
+ * tell. The token only ever goes to api.github.com.
+ */
+async function fetchGithubFileAsUser({ owner, repo, branch, path }, token, maxBytes) {
+  const encodedPath = path.split('/').map(encodeURIComponent).join('/');
+  const url = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodedPath}?ref=${encodeURIComponent(branch)}`;
+  const res = await fetch(url, {
+    credentials: 'omit',
+    headers: { Authorization: `token ${token}`, Accept: 'application/vnd.github.raw+json' }
+  });
+  if (!res.ok) {
+    const error = new Error(`Fetch failed: HTTP ${res.status} ${res.statusText}`);
+    error.status = res.status;
+    throw error;
+  }
+  return parseRedstringResponse(res, maxBytes);
+}
+
+/**
+ * Fetch the universe a shared link names. `getToken` is asked only after an
+ * anonymous read of a GitHub file comes back 404.
+ *
+ * @param {string} sourceUrl - a direct https URL of the file
+ * @param {{ getToken?: () => Promise<string|null>, maxBytes?: number }} [options]
+ * @returns {Promise<object>} parsed JSON ready for importFromRedstring()
+ */
+export async function fetchSharedUniverse(sourceUrl, { getToken, maxBytes = maxExternalUniverseBytes() } = {}) {
+  try {
+    return await fetchRedstringJson(sourceUrl, { maxBytes });
+  } catch (error) {
+    const classified = classifyUrl(sourceUrl);
+    if (classified.kind === 'github-file' && error.status === 404) {
+      const token = await getToken?.().catch(() => null);
+      if (!token) {
+        error.code = 'NO_ACCESS';
+        error.signedIn = false;
+        throw error;
+      }
+      try {
+        return await fetchGithubFileAsUser(classified, token, maxBytes);
+      } catch (signedInError) {
+        if (signedInError.status === 404 || signedInError.status === 403) {
+          signedInError.code = 'NO_ACCESS';
+          signedInError.signedIn = true;
+        }
+        throw signedInError;
+      }
+    }
+    if (error.status === 401 || error.status === 403 || error.status === 404) error.code = 'NO_ACCESS';
+    throw error;
+  }
+}
+
+/** A shared link's failure, in words for the person who followed it. */
+export function describeSharedLinkFailure(error) {
+  if (error?.code === 'NO_ACCESS') {
+    return error.signedIn === false
+      ? "This universe wasn't found, or it's private. If you have access, connect GitHub in the Universes panel and open the link again."
+      : "This universe wasn't found, or your GitHub account doesn't have access to it.";
+  }
+  if (error?.code === 'UNREACHABLE') {
+    return "Couldn't reach this universe. The server may be down, or it may not allow Redstring to read the file.";
+  }
+  return error?.message || "This link couldn't be opened.";
 }
 
 /**

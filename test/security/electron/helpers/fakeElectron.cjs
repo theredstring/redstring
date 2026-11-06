@@ -37,6 +37,7 @@ function createFakeElectron({ userData, documents, isPackaged = false, dialogRes
     whenReady: () => ready,
     isReady: () => true,
     requestSingleInstanceLock: () => true,
+    setAsDefaultProtocolClient: (scheme) => { (calls.protocolClients ||= []).push(scheme); return true; },
     quit: () => { calls.quits = (calls.quits || 0) + 1; },
     exit: () => {}
   });
@@ -77,6 +78,9 @@ function createFakeElectron({ userData, documents, isPackaged = false, dialogRes
     loadFile(file) { this.loadedFile = file; return Promise.resolve(); }
     once(...a) { return super.once(...a); }
     isDestroyed() { return this.destroyed; }
+    isMinimized() { return false; }
+    restore() {}
+    focus() {}
     // Like Electron: destroying the last window emits window-all-closed.
     destroy() {
       if (this.destroyed) return;

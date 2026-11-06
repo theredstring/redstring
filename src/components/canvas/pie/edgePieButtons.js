@@ -2,6 +2,7 @@
  * The edge pie menu's buttons (P5.01), moved verbatim from NodeCanvas's memo.
  * See nodePieButtons.js.
  */
+import { dimEditsWhenReadOnly } from './readOnlyButtons.js';
 import { ArrowUpFromDot, ClipboardCopy, ClipboardPaste, Edit3, NotebookText, Palette, Sparkles, Trash2 } from 'lucide-react';
 import { CONNECTION_DEFAULT_COLOR } from '../../../constants';
 import { SURFACES as WIZARD_SURFACES } from '../../../wizard/prompts/intents.js';
@@ -158,5 +159,5 @@ export function buildEdgePieMenuButtons(ctx) {
     });
   }
 
-  return buttons;
+  return dimEditsWhenReadOnly(buttons);
 }

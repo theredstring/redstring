@@ -6,6 +6,7 @@ const fs = require('node:fs').promises;
 const fsSync = require('node:fs');
 const crypto = require('node:crypto');
 const { initUpdater } = require('./updater.cjs');
+const { isAppLink, appLinkFromArgv } = require('./appLink.cjs');
 const {
   isTrustedSender,
   isAppUrl,
@@ -1434,15 +1435,47 @@ if (isDev) {
   handle('druid:chat', async (event, { endpoint, body } = {}) => getDruidBridge().chat(endpoint, body));
 }
 
-// Second-launch attempts are forwarded here by the single-instance lock.
-app.on('second-instance', () => {
+// A redstring:// link waits here until the renderer takes it, so one that
+// arrives before the page is listening isn't lost.
+let pendingAppLink = appLinkFromArgv(process.argv);
+
+const showMainWindow = () => {
   if (mainWindow && !mainWindow.isDestroyed()) {
     if (mainWindow.isMinimized()) mainWindow.restore();
     mainWindow.focus();
   } else if (app.isReady() && BrowserWindow.getAllWindows().length === 0) {
     createWindow();
   }
+};
+
+const receiveAppLink = (link) => {
+  pendingAppLink = link;
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('shared-link:available');
+  showMainWindow();
+};
+
+handle('shared-link:take', async () => {
+  const link = pendingAppLink;
+  pendingAppLink = null;
+  return link;
 });
+
+// macOS delivers a link here, at launch and while running.
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  if (isAppLink(url)) receiveAppLink(url);
+});
+
+// Second-launch attempts are forwarded here by the single-instance lock. On
+// Windows and Linux a link arrives this way.
+app.on('second-instance', (_event, argv) => {
+  const link = appLinkFromArgv(argv);
+  if (link) receiveAppLink(link);
+  else showMainWindow();
+});
+
+// Packaged builds only: in development this would register the bare Electron binary.
+if (!isDev && !sessionName) app.setAsDefaultProtocolClient('redstring');
 
 app.whenReady().then(async () => {
   // Prevent multiple instances on ALL platforms. macOS needs this too:

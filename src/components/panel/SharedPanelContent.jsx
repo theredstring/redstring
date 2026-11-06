@@ -1,3 +1,4 @@
+import useReadOnlyUniverse, { nudgeReadOnlyUniverse, selectReadOnlyOpen } from '../../store/readOnlyUniverse.js';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useDrag } from 'react-dnd';
 import { getEmptyImage } from 'react-dnd-html5-backend';
@@ -560,6 +561,7 @@ const WikipediaPageOption = ({ option, disabled, onClick }) => {
 
 // Wikipedia Enrichment Component
 const WikipediaEnrichment = ({ nodeData, onUpdateNode, triggerRef, onSearchingChange }) => {
+  const readOnly = useReadOnlyUniverse(selectReadOnlyOpen);
   const theme = useTheme();
   const accentColor = theme.darkMode ? '#C09191' : theme.accent.primary;
   const [isSearching, setIsSearching] = useState(false);
@@ -741,7 +743,7 @@ const WikipediaEnrichment = ({ nodeData, onUpdateNode, triggerRef, onSearchingCh
           variant="outline"
           color={accentColor}
           onClick={handleWikipediaSearch}
-          disabled={isSearching}
+          disabled={isSearching || readOnly}
           style={{
             borderColor: accentColor,
             cursor: isSearching ? 'wait' : 'pointer'
@@ -1023,6 +1025,7 @@ const SharedPanelContent = ({
   // Type determination
   isHomeTab = false
 }) => {
+  const readOnly = useReadOnlyUniverse(selectReadOnlyOpen);
   const theme = useTheme();
   const accentColor = theme.darkMode ? '#C09191' : theme.accent.primary;
   const accentBgLight = theme.darkMode ? 'rgba(192,145,145,0.1)' : 'rgba(139,0,0,0.05)';
@@ -1092,6 +1095,7 @@ const SharedPanelContent = ({
 
 
   const handleBioDoubleClick = () => {
+    if (readOnly) { nudgeReadOnlyUniverse(); return; }
     setTempBio(bio);
     setIsEditingBio(true);
     isSavingBioRef.current = false; // Reset lock on open
@@ -1139,6 +1143,7 @@ const SharedPanelContent = ({
   };
 
   const handleTitleDoubleClick = () => {
+    if (readOnly) { nudgeReadOnlyUniverse(); return; }
     setTempTitle(nodeData.name || '');
     setIsEditingTitle(true);
   };
@@ -1221,6 +1226,7 @@ const SharedPanelContent = ({
         icon={Palette}
         onClick={onColorChange}
         title="Change color"
+        disabled={readOnly}
       />
       {showExpandButton && (
         <PanelIconButton
@@ -1235,6 +1241,7 @@ const SharedPanelContent = ({
         icon={ImagePlus}
         onClick={() => onImageAdd(nodeData.id)}
         title="Add image"
+        disabled={readOnly}
       />
     </div>
   );
@@ -1276,6 +1283,7 @@ const SharedPanelContent = ({
         hoverFillColor={accentColor}
         onClick={() => toggleSavedNode && nodeData?.id && toggleSavedNode(nodeData.id)}
         title={isSaved ? 'Remove from Saved Things' : 'Save to Saved Things'}
+        disabled={readOnly}
       />
       <PanelIconButton
         icon={BookSearch}
@@ -1287,6 +1295,7 @@ const SharedPanelContent = ({
           icon={Sparkles}
           onClick={handleAskWizard}
           title="Ask The Wizard"
+          disabled={readOnly}
         />
       )}
     </div>
@@ -1527,9 +1536,9 @@ const SharedPanelContent = ({
               userSelect: 'text',
               textAlign: 'left'
             }}
-            title="Double-click to edit"
+            title={readOnly ? undefined : 'Double-click to edit'}
           >
-            {bio || 'Double-click to add a bio...'}
+            {bio || (readOnly ? 'No bio.' : 'Double-click to add a bio...')}
           </div>
         )}
 
@@ -1669,7 +1678,7 @@ const SharedPanelContent = ({
                 variant="outline"
                 color={accentColor}
                 onClick={() => wikiSearchRef.current?.()}
-                disabled={wikiIsSearching}
+                disabled={wikiIsSearching || readOnly}
                 style={{
                   borderColor: accentColor,
                   cursor: wikiIsSearching ? 'wait' : 'pointer',

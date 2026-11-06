@@ -8,6 +8,7 @@
  * thing. ControlPanelsHost publishes the list here; GroupPieMenuLayer draws it.
  * A plain group (not a Thing-group, not shown as a formula) gets no pie.
  */
+import { dimEditsWhenReadOnly } from './readOnlyButtons.js';
 import { create } from 'zustand';
 import {
   ArrowUpFromDot, ClipboardCopy, Combine, Edit3, NotebookText, Palette, RefreshCw, Save, Scaling, Shapes, Sigma, SquarePlus, Superscript,
@@ -102,7 +103,7 @@ export function buildGroupPieButtons({ mode, group, formulaText, currentFormat, 
       { id: 'group-ungroup', label: 'Ungroup', icon: Ungroup, action: () => h.onUngroup() },
       { id: 'group-delete', label: 'Delete', icon: Trash2, action: () => h.onDelete() },
     );
-    return buttons;
+    return dimEditsWhenReadOnly(buttons);
   }
 
   // The panel's format mode: an equation shown as its formula (or a plain group

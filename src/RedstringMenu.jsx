@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import MaroonSlider from './components/MaroonSlider.jsx';
-import { ChevronRight, FileText, FolderOpen, Save, Clock, Globe, BookOpen, Home, LayoutGrid, Activity, RefreshCw, Undo2, Redo2, Settings, GitMerge, Move, Moon, Maximize, ZoomIn, Tag, Grid3x3, Keyboard, Type, Minus, CornerDownRight, Spline, Circle, MonitorDown, Link as LinkIcon, Library } from 'lucide-react';
+import { ChevronRight, Copy, FileText, FolderOpen, Save, Clock, Globe, BookOpen, Home, LayoutGrid, Activity, RefreshCw, Undo2, Redo2, Settings, GitMerge, Move, Moon, Maximize, ZoomIn, Tag, Grid3x3, Keyboard, Type, Minus, CornerDownRight, Spline, Circle, MonitorDown, Link as LinkIcon, Library } from 'lucide-react';
 import './RedstringMenu.css';
 import { canOfferDesktopDownload, openDesktopDownload } from './utils/desktopDownload.js';
 import * as fileStorage from './store/fileStorage.js';
@@ -58,6 +58,8 @@ const RedstringMenu = ({
   onOpenRecentFile,
   onLoadWikidataCatalog,
   onLoadFromExternalLink,
+  onMakeCopy,
+  onCopyLink,
   onOpenForceSim,
   onAutoLayoutGraph,
   onSnapToGrid,
@@ -80,6 +82,7 @@ const RedstringMenu = ({
   const showDownload = useMemo(() => canOfferDesktopDownload(), []);
   // Debug used to be a top-level menu here. It is a Settings page now — one
   // surface for the switches, and one that works on a phone.
+  const [linkCopied, setLinkCopied] = useState(false);
   const menuItems = [...(showDownload ? ['Download'] : []), 'File', 'Edit', 'View', 'Connections', 'Help'];
   const menuRef = useRef(null);
 
@@ -365,6 +368,34 @@ const RedstringMenu = ({
                         >
                           <LinkIcon size={16} style={{ marginRight: '8px', minWidth: '16px', flexShrink: 0 }} />
                           Load from External Link...
+                        </div>
+                        <div
+                          className="submenu-item"
+                          tabIndex={0}
+                          role="button"
+                          onMouseEnter={handleRegularSubmenuItemHover}
+                          onFocus={handleRegularSubmenuItemHover}
+                          onClick={() => onMakeCopy?.()}
+                          style={{ cursor: 'pointer' }}
+                        >
+                          <Copy size={16} style={{ marginRight: '8px', minWidth: '16px', flexShrink: 0 }} />
+                          Make a Copy
+                        </div>
+                        <div
+                          className="submenu-item"
+                          tabIndex={0}
+                          role="button"
+                          onMouseEnter={handleRegularSubmenuItemHover}
+                          onFocus={handleRegularSubmenuItemHover}
+                          onClick={async () => {
+                            if (!(await onCopyLink?.())) return;
+                            setLinkCopied(true);
+                            setTimeout(() => setLinkCopied(false), 1500);
+                          }}
+                          style={{ cursor: 'pointer' }}
+                        >
+                          <LinkIcon size={16} style={{ marginRight: '8px', minWidth: '16px', flexShrink: 0 }} />
+                          {linkCopied ? 'Link Copied' : 'Copy Link'}
                         </div>
                         <div
                           className="submenu-item"

@@ -8,6 +8,7 @@ import { CONNECTION_WIDTH_BASE_SCALE } from '../constants.js';
 import useHistoryStore from '../store/historyStore.js';
 import useGraphStore from '../store/graphStore.js';
 import useCanvasUIStore from '../store/canvasUIStore.js';
+import { isReadOnlyUniverseOpen, nudgeReadOnlyUniverse } from '../store/readOnlyUniverse.js';
 import { VISIBLE_LINE_OUTSET, anchorInfoFacing, getConnectionEndBox, getVisualConnectionEndpoints, getNodeHitbox, getLineNodeIntersection, getNodeEdgeIntersection, straightArrowHeads } from '../utils/canvas/nodeHitbox.js';
 import { calculateParallelEdgePath, clipCurveToBoxes, getTrimmedBezierPath, getCurvedArrowPlacement, DEFAULT_TIP_INSET } from '../utils/canvas/parallelEdgeUtils.js';
 import { calculateSelfLoopPath } from '../utils/canvas/selfLoopUtils.js';
@@ -2769,6 +2770,7 @@ export const useNodeDrag = ({
   // Mouse passes 3 args and the offset is computed from clientX/Y as before.
   const startDragForNode = useCallback((nodeData, clientX, clientY, presetOffset = null) => {
     if (!nodeData || !activeGraphId) return false;
+    if (isReadOnlyUniverseOpen()) { nudgeReadOnlyUniverse(); return false; }
     // Cancel any in-flight zoom-restore from the previous drag so this new
     // drag's zoom-out anchors at the current zoom, not whatever frame the
     // restore was on. Cleanup-at-start (in handleDragEnd) already flushed
@@ -2888,6 +2890,7 @@ export const useNodeDrag = ({
   // Start Group Drag (from group label mousedown)
   // ---------------------------------------------------------------------------
   const startGroupDrag = useCallback((groupId, memberOffsets, clientX, clientY) => {
+    if (isReadOnlyUniverseOpen()) { nudgeReadOnlyUniverse(); return; }
     cancelInFlightZoomRestore();
     dragPhaseRef.current = 'dragging';
     // Prime mousePositionRef before triggerDragZoomOut so the zoom-out

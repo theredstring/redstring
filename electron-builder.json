@@ -46,6 +46,12 @@
     "grantFileProtocolExtraPrivileges": false,
     "loadBrowserProcessSpecificV8Snapshot": false
   },
+  "protocols": [
+    {
+      "name": "Redstring Link",
+      "schemes": ["redstring"]
+    }
+  ],
   "mac": {
     "extraResources": [
       {

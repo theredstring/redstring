@@ -12,6 +12,7 @@
  * - No write of any kind happens while a universe read is in flight
  *   (`beginLoad`/`endLoad`, armed by `universeBackend.loadUniverseData`).
  * - Saves are blocked until a `type:'load'` change context fires (`hasLoadedFromFile`).
+ * - Nothing is written while a universe is open read-only (store/readOnlyUniverse.js).
  * - Catastrophic shrinkage (>90% drop from baseline) is refused; use `forceSave` to override.
  * - All interaction gates (drag, pan, pinch) defer serialization until `signalInteractionEnd`.
  */
@@ -24,6 +25,7 @@ import { gitAutosavePolicy } from './GitAutosavePolicy.js';
 import { generateStateHash as computeStateHash } from './saveHash.js';
 import { vlog } from '../utils/verboseLog.js';
 import { getAutoSaveMode, autoSaves, subscribeAutoSaveMode } from './autoSaveMode.js';
+import { isReadOnlyUniverseOpen } from '../store/readOnlyUniverse.js';
 
 // SIMPLIFIED: No priorities - all changes batched together with a single debounce.
 // A change goes to the worker once the person has been idle for QUIET_MS, and
@@ -1035,6 +1037,7 @@ class SaveCoordinator {
     // What this state grew from, before anything can hold on to it (shared
     // universes: GitSyncEngine.stampState).
     try { this.gitSyncEngine?.stampState?.(newState); } catch (_) { /* never block a save */ }
+    if (isReadOnlyUniverseOpen()) return;
     if (!this.isEnabled || !newState) {
       if (!this.isEnabled) {
         // console.log('[SaveCoordinator] State change ignored - not enabled');
@@ -1418,6 +1421,7 @@ class SaveCoordinator {
    * dispatching.
    */
   executeSave() {
+    if (isReadOnlyUniverseOpen()) return;
     // Defense-in-depth: if a SoT swap is in flight, don't dispatch. The fire-
     // and-forget dual write would otherwise commit potentially-empty state to
     // both local and Git mid-handoff.
@@ -1820,6 +1824,7 @@ class SaveCoordinator {
    */
   async flush(reason = 'flush', { terminal = false } = {}) {
     if (!this.isEnabled || this.swapInProgress) return false;
+    if (isReadOnlyUniverseOpen()) return false;
 
     // Even a quit-flush must not write mid-load. The store still holds
     // pre-load content; persisting it on tab-hide is how a backgrounded mobile
@@ -1990,6 +1995,10 @@ class SaveCoordinator {
   async forceSave(state, { allowDuringLoad = false } = {}) {
     if (!this.isEnabled) {
       throw new Error('Save coordinator not initialized');
+    }
+
+    if (isReadOnlyUniverseOpen()) {
+      throw new Error('This universe is read only, so nothing was saved. Make a copy to keep it.');
     }
 
     // "Save Now" pressed while the universe is still being read writes the

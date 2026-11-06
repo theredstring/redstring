@@ -50,6 +50,7 @@ Find your task below and read only the listed files — in order. This is the fa
 | **Work with SPARQL / semantic web / Wikidata** | `documentation/semantic-web/SEMANTIC_WEB_INTEGRATION.md`, `documentation/semantic-web/RDF_INTEGRATION_README.md`, `documentation/semantic-web/SEMANTIC_DISCOVERY_GUIDE.md` |
 | **Set up the save / sync system** | `documentation/core-system/SAVE_COORDINATOR_README.md`, `documentation/core-system/GIT_FEDERATION.md` |
 | **Work on collaboration / shared universes, or a Git sync conflict** | `documentation/core-system/SHARED_UNIVERSE_SYNC.md` (current on `feat/shared-universe-sync` — the merge, the engine changes, the harness), `documentation/core-system/GIT_FEDERATION.md` |
+| **Work on shared links, read-only universes or Make a Copy** | `documentation/core-system/SHARED_LINKS.md` |
 | **Understand the v4.0.0 format roadmap** | `documentation/data-format/FORMAT_REFACTOR_PLAN.md` (future-intent — SKOS/PROV/RDF-star alignment; **no code exists yet**) |
 | **Sign releases: renew a certificate, change release credentials or the Apple Account Holder** | `documentation/dev-ops/CODE_SIGNING.md` (current — every platform's signing, the yearly Developer ID renewal, the notarization API key; Team ID `24MPFEY5BE` must never change) |
 | **Run or write tests** | `documentation/dev-ops/TESTING_ONBOARDING.md`, `documentation/ai-agent-mcp/AI_TESTING_GUIDE.md`, `documentation/ai-agent-mcp/WIZARD_TESTING_GUIDE.md` |

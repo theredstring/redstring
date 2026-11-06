@@ -120,7 +120,7 @@ Layers take a `ctx` prop built by NodeCanvas and subscribe to the fast-changing 
   - each piece has its own host (`HeaderHost`, `PanelHost`, `TypeListHost`), wired to the stores rather than to NodeCanvas.
 - Hosts for screen-level UI:
   - `ModalHosts`, `SearchHosts`, `ForceSimHost`, `SyncDebugHost`;
-  - `UniverseHost`: universe lifecycle and the welcome screen.
+  - `UniverseHost`: universe lifecycle and the welcome screen. It mounts `ReadOnlyHost`, the bar over a read-only universe ([SHARED_LINKS.md](SHARED_LINKS.md)).
 - NodeCanvas portals its screen-level overlays into the shell's slot after TypeList (`hosts/canvasOverlaySlot.js`):
   - `ControlPanelsHost`: the node, group, connection and abstraction panels, their show/hide effects and their action handlers.
   - `CanvasOverlaysHost`: the abstraction carousel, `ColorPickersHost`, the two confirmations and `WizardHost`.

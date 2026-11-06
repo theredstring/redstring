@@ -3,6 +3,8 @@ import Header from '../../../Header.jsx';
 import useGraphStore from '../../../store/graphStore.js';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
 import { runCanvasCommand } from '../../../utils/canvas/canvasCommands.js';
+import { makeCopyOfOpenUniverse } from '../actions/makeCopy.js';
+import { copyOpenUniverseLink } from '../actions/copyUniverseLink.js';
 import { setActionHover } from '../../../utils/canvas/actionHover.js';
 import { onRenderProbe } from '../../../utils/perf/renderProbe.js';
 import { useStableSelector, arrayOfRecordsEqual } from '../../../hooks/useStableSelector.js';
@@ -189,6 +191,8 @@ function HeaderHost({ hidden = false }) {
         onSnapToGrid={handleSnapToGrid}
         onCondenseNodes={handleCondenseNodes}
         onLoadFromExternalLink={handleLoadFromExternalLink}
+        onMakeCopy={makeCopyOfOpenUniverse}
+        onCopyLink={copyOpenUniverseLink}
         onNewUniverse={newUniverse}
         onOpenUniverse={openUniverse}
         onSaveUniverse={saveUniverse}

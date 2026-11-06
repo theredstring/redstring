@@ -1,3 +1,4 @@
+import useReadOnlyUniverse, { nudgeReadOnlyUniverse, selectReadOnlyOpen } from './store/readOnlyUniverse.js';
 import React, { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { Trash2, Plus, ArrowUpFromDot, ChevronLeft, ChevronRight, Package, PackageOpen, Layers, Edit3, Bookmark, Palette, Orbit, Group, Ungroup, SquarePlus, Combine, Maximize2, Minimize2, Sparkles, NotebookText, Save, RefreshCw, ClipboardCopy, CopyPlus, Merge } from 'lucide-react';
 import UniversalNodeRenderer from './UniversalNodeRenderer';
@@ -467,6 +468,7 @@ const UnifiedBottomControlPanel = ({
   //
   // The hidden nav chevrons need no guard: they're `visibility: hidden`, which
   // takes them out of hit-testing entirely, so they never become a click target.
+  const readOnly = useReadOnlyUniverse(selectReadOnlyOpen);
   const handleButtonHaptic = useCallback((e) => {
     // Page-turn arrows step through a set, same as the ◀/▶ nav chevrons below.
     if (e.target?.closest?.('.piemenu-chevron')) {
@@ -854,9 +856,18 @@ const UnifiedBottomControlPanel = ({
 
   return (
     <div
-      className={`unified-bottom-panel mode-${mode} ${typeListOpen ? 'with-typelist' : ''} ${animationState} ${className}`}
+      className={`unified-bottom-panel mode-${mode} ${typeListOpen ? 'with-typelist' : ''} ${animationState} ${className}${readOnly ? ' read-only' : ''}`}
       onAnimationEnd={handleAnimationEnd}
-      onClickCapture={handleButtonHaptic}
+      onClickCapture={(e) => {
+        // Only what's marked data-view-only is live while a universe is read only.
+        if (readOnly && e.target.closest?.('.piemenu-button:not([data-view-only])')) {
+          e.preventDefault();
+          e.stopPropagation();
+          nudgeReadOnlyUniverse();
+          return;
+        }
+        handleButtonHaptic(e);
+      }}
       onTouchStart={(e) => { e.stopPropagation(); }}
     >
       <div className="unified-bottom-content" style={dragStyle}>
@@ -1018,6 +1029,7 @@ const UnifiedBottomControlPanel = ({
                 <>
                   <div
                     className="piemenu-button"
+                  data-view-only
                     onClick={onUp}
                     title="Open"
                     onMouseEnter={() => triggerActionHover('control-decomp-open', 'Open')}
@@ -1054,6 +1066,7 @@ const UnifiedBottomControlPanel = ({
                   </div>
                   <div
                     className="piemenu-button"
+                  data-view-only
                     onClick={onCompose}
                     title="Compose"
                     onMouseEnter={() => triggerActionHover('control-decomp-compose', 'Compose')}
@@ -1084,6 +1097,7 @@ const UnifiedBottomControlPanel = ({
                   </div>
                   <div
                     className="piemenu-button"
+                  data-view-only
                     onClick={onCompose}
                     title="Compose"
                     onMouseEnter={() => triggerActionHover('control-decomp-compose', 'Compose')}
@@ -1146,6 +1160,7 @@ const UnifiedBottomControlPanel = ({
                 </div>
                 <div
                   className="piemenu-button"
+                  data-view-only
                   onClick={onCopy}
                   title="Copy"
                   onMouseEnter={() => triggerActionHover('control-copy', 'Copy')}
@@ -1220,6 +1235,7 @@ const UnifiedBottomControlPanel = ({
               <>
                 <div
                   className="piemenu-button"
+                  data-view-only
                   onClick={onUp}
                   title="Open Web"
                   onMouseEnter={() => triggerActionHover('control-open-web', 'Open Web')}
@@ -1229,6 +1245,7 @@ const UnifiedBottomControlPanel = ({
                 </div>
                 <div
                   className="piemenu-button"
+                  data-view-only
                   onClick={onDecompose || onAdd}
                   title="Decompose"
                   onMouseEnter={() => triggerActionHover('control-decompose', 'Decompose')}
@@ -1238,6 +1255,7 @@ const UnifiedBottomControlPanel = ({
                 </div>
                 <div
                   className="piemenu-button"
+                  data-view-only
                   onClick={onAbstraction || onOpenInPanel}
                   title="Abstraction"
                   onMouseEnter={() => triggerActionHover('control-abstraction', 'Abstraction')}
@@ -1299,6 +1317,7 @@ const UnifiedBottomControlPanel = ({
                 </div>
                 <div
                   className="piemenu-button"
+                  data-view-only
                   onClick={onOrbit || onDelete}
                   title="Semantic Orbit"
                   onMouseEnter={() => triggerActionHover('control-orbit', 'Semantic Orbit')}
@@ -1322,6 +1341,7 @@ const UnifiedBottomControlPanel = ({
                 </div>
                 <div
                   className="piemenu-button"
+                  data-view-only
                   onClick={onOpenNodePrototypeInPanel}
                   title="Open in Panel"
                   onMouseEnter={() => triggerActionHover('control-open-panel', 'Open in Panel')}
@@ -1453,6 +1473,7 @@ const UnifiedBottomControlPanel = ({
                 {isFormat && onCopy && (
                   <div
                     className="piemenu-button"
+                  data-view-only
                     onClick={onCopy}
                     title="Copy"
                     onMouseEnter={() => triggerActionHover('control-copy', 'Copy')}
@@ -1487,6 +1508,7 @@ const UnifiedBottomControlPanel = ({
                 </div>
                 <div
                   className="piemenu-button"
+                  data-view-only
                   onClick={onUp}
                   title="Expand Dimension"
                   onMouseEnter={() => triggerActionHover('control-expand-dimension', 'Expand Dimension')}
@@ -1496,6 +1518,7 @@ const UnifiedBottomControlPanel = ({
                 </div>
                 <div
                   className="piemenu-button"
+                  data-view-only
                   onClick={onOpenInPanel}
                   title="Open in Panel"
                   onMouseEnter={() => triggerActionHover('control-open-panel', 'Open in Panel')}
@@ -1580,6 +1603,7 @@ const UnifiedBottomControlPanel = ({
                     </div>
                     <div
                       className="piemenu-button"
+                  data-view-only
                       onClick={onOpenInPanel}
                       title="Open in Panel"
                       onMouseEnter={() => triggerActionHover('control-open-panel', 'Open in Panel')}

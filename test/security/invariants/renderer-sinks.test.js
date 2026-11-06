@@ -17,7 +17,9 @@ const SAFE_COLOR = 'src/utils/safeColor.js';
 // ── URL vetting shared by the href / navigation rules ────────────────────
 
 const DANGEROUS_SCHEME = /^\s*(?:javascript|data|vbscript|file):/i;
-const FIXED_PREFIX = /^(?:https?:\/\/|mailto:|\/|#|\.\/|\?)/i;
+// `redstring://open?` is the app's own shared link (src/services/sharedLink.js):
+// fixed scheme and path, so a file can't choose where it goes.
+const FIXED_PREFIX = /^(?:https?:\/\/|mailto:|\/|#|\.\/|\?|redstring:\/\/open\?)/i;
 const SANITIZERS = new Set(['safeExternalHref', 'createObjectURL']);
 
 /**
@@ -183,6 +185,12 @@ describe('security invariants: renderer sinks (src/)', { timeout: 60_000 }, () =
       },
     }));
     assertRule('renderer/anchor-href', found);
+  });
+
+  it('of the app\'s own scheme, only its shared link counts as a fixed prefix', () => {
+    expect(FIXED_PREFIX.test('redstring://open?gh=a')).toBe(true);
+    expect(FIXED_PREFIX.test('redstring://auth?code=1')).toBe(false);
+    expect(FIXED_PREFIX.test('redstring:')).toBe(false);
   });
 
   it('navigations (location.href/assign/replace, element.href =) only take vetted URLs', () => {

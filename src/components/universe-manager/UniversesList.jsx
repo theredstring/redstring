@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
-import { Plus, ChevronDown, Github, Upload, Download, X, Edit, Pencil, Merge, Save, Activity, Link, FileText, ArrowRightLeft, FolderOpen, Folder, RotateCcw, Key, Copy, Check, History, Info, Library } from 'lucide-react';
+import { Plus, ChevronDown, Github, Upload, Download, X, Edit, Pencil, Merge, Save, Activity, Link, FileText, ArrowRightLeft, FolderOpen, Folder, RotateCcw, Key, Copy, CopyPlus, Check, History, Info, Library } from 'lucide-react';
 import { useTheme } from '../../hooks/useTheme.js';
 
 import PanelSegment from './shared/PanelSegment.jsx';
@@ -9,6 +9,9 @@ import SourceOfTruthPill from './shared/SourceOfTruthPill.jsx';
 import { isCapacitor } from '../../utils/capacitorAdapter.js';
 import { showContextMenuForElement } from '../GlobalContextMenu.jsx';
 import { showNotice } from '../shared/appDialogs.js';
+import { buildSharedLink } from '../../services/sharedLink.js';
+import { sharedLinkForUniverse } from '../../services/universeShare.js';
+import ShareUniverse from './ShareUniverse.jsx';
 
 
 function formatWhen(timestamp) {
@@ -44,6 +47,8 @@ const UniversesList = ({
   onDeleteUniverse,
   onRenameUniverse,
   onMergeUniverse,
+  onMakeCopy,
+  onCloseReadOnly,
   onLinkRepo,
   onLinkLocalFile,
   onCreateLocalFile,
@@ -568,6 +573,7 @@ const UniversesList = ({
           ) : (
             orderedUniverses.map((universe) => {
               const isActive = universe.slug === activeUniverseSlug;
+              const isReadOnly = !!universe.raw?.readOnly;
               const resolvedSource = universe.sourceOfTruth || universe.raw?.sourceOfTruth || universe.storage?.primary?.type || null;
               // `??`, not `||`: a genuine 0 is an answer, and falling through it
               // resurrects a stale count from an older metadata layer (a universe
@@ -650,7 +656,7 @@ const UniversesList = ({
                         ) : (
                           <span
                             style={{ fontWeight: 600, color: theme.canvas.textPrimary }}
-                            onDoubleClick={isActive ? () => beginRename(universe) : undefined}
+                            onDoubleClick={isActive && !isReadOnly ? () => beginRename(universe) : undefined}
                           >
                             {universe.name}
                           </span>
@@ -665,6 +671,20 @@ const UniversesList = ({
                             fontWeight: 700
                           }}>
                             ACTIVE
+                          </span>
+                        )}
+                        {isReadOnly && (
+                          <span style={{
+                            fontSize: '0.6rem',
+                            padding: '2px 6px',
+                            borderRadius: 10,
+                            backgroundColor: 'transparent',
+                            color: theme.canvas.textPrimary,
+                            border: `1px solid ${theme.canvas.border}`,
+                            fontWeight: 700,
+                            letterSpacing: '0.05em'
+                          }}>
+                            READ ONLY
                           </span>
                         )}
                         {isEmpty && (
@@ -753,7 +773,16 @@ const UniversesList = ({
                               title="Switch to this universe"
                             />
                           )}
-                          {isActive && (
+                          {isActive && !isReadOnly && (
+                            <PanelIconButton
+                              icon={CopyPlus}
+                              size={isVerySlim ? 14 : (isSlim ? 18 : 20)}
+                              style={isVerySlim ? { padding: '5px' } : {}}
+                              onClick={onMakeCopy}
+                              title="Make a copy"
+                            />
+                          )}
+                          {isActive && !isReadOnly && (
                             <PanelIconButton
                               icon={Pencil}
                               size={isVerySlim ? 14 : (isSlim ? 18 : 20)}
@@ -765,7 +794,7 @@ const UniversesList = ({
                               title="Rename universe"
                             />
                           )}
-                          {isActive && universes.length > 1 && (
+                          {isActive && !isReadOnly && universes.length > 1 && (
                             <PanelIconButton
                               icon={Merge}
                               size={isVerySlim ? 14 : (isSlim ? 18 : 20)}
@@ -774,7 +803,16 @@ const UniversesList = ({
                               title="Merge with another universe"
                             />
                           )}
-                          {universes.length > 1 && (
+                          {isReadOnly && (
+                            <PanelIconButton
+                              icon={X}
+                              size={isVerySlim ? 14 : (isSlim ? 18 : 20)}
+                              style={isVerySlim ? { padding: '5px' } : {}}
+                              onClick={onCloseReadOnly}
+                              title="Close"
+                            />
+                          )}
+                          {!isReadOnly && universes.length > 1 && (
                             <PanelIconButton
                               icon={X}
                               size={isVerySlim ? 14 : (isSlim ? 18 : 20)}
@@ -788,9 +826,47 @@ const UniversesList = ({
                     </div>
                   </div>
 
+                  {isActive && isReadOnly && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingLeft: isVerySlim ? 8 : (isSlim ? 12 : 24) }}>
+                      <div style={{ fontSize: '0.75rem', color: theme.canvas.textSecondary }}>
+                        Nothing is saved. Make a copy to keep it and edit it.
+                      </div>
+                      <div style={{ fontSize: '0.65rem', color: theme.canvas.textSecondary, overflowWrap: 'anywhere' }}>
+                        {universe.raw?.readOnly?.sourceUrl}
+                      </div>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        <PanelIconButton
+                          icon={CopyPlus}
+                          label="Make a Copy"
+                          variant="outline"
+                          size={12}
+                          onClick={onMakeCopy}
+                        />
+                        <PanelIconButton
+                          icon={copiedSlug === universe.slug ? Check : Copy}
+                          label={copiedSlug === universe.slug ? 'Copied' : 'Copy Link'}
+                          variant="outline"
+                          size={12}
+                          onClick={() => {
+                            const url = buildSharedLink(universe.raw?.readOnly?.sourceUrl);
+                            if (!url) return;
+                            navigator.clipboard?.writeText(url).then(() => {
+                              setCopiedSlug(universe.slug);
+                              setTimeout(() => {
+                                setCopiedSlug((prev) => (prev === universe.slug ? null : prev));
+                              }, 1500);
+                            }).catch(() => { });
+                          }}
+                        />
+                      </div>
+                    </div>
+                  )}
+
                   {/* Expanded Content - Only for Active Universe */}
-                  {isActive && (
+                  {isActive && !isReadOnly && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingLeft: isVerySlim ? 8 : (isSlim ? 12 : 24) }}>
+                      <ShareUniverse universe={universe} onLinkRepo={onLinkRepo} />
+
                       {/* Storage Slots */}
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                         <div style={{ fontSize: '0.75rem', fontWeight: 600, color: theme.canvas.textPrimary }}>
@@ -829,12 +905,8 @@ const UniversesList = ({
                                     style={slotButtonStyle}
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      const linked = universe.raw?.gitRepo?.linkedRepo;
-                                      if (!linked?.user || !linked?.repo) return;
-                                      const branch = universe.raw?.gitRepo?.branch || 'main';
-                                      const folder = universe.raw?.gitRepo?.universeFolder || universe.slug;
-                                      const file = universe.raw?.gitRepo?.universeFile || `${universe.slug}.redstring`;
-                                      const url = `https://github.com/${linked.user}/${linked.repo}/blob/${branch}/universes/${folder}/${file}`;
+                                      const url = sharedLinkForUniverse(universe);
+                                      if (!url) return;
                                       try {
                                         navigator.clipboard.writeText(url).then(() => {
                                           setCopiedSlug(universe.slug);
@@ -844,7 +916,7 @@ const UniversesList = ({
                                         });
                                       } catch { }
                                     }}
-                                    title={copiedSlug === universe.slug ? 'Copied!' : 'Copy public link'}
+                                    title={copiedSlug === universe.slug ? 'Copied!' : 'Copy link'}
                                   />
                                   {onDownloadRepoFile && (
                                     <PanelIconButton

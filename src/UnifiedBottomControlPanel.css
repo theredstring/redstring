@@ -265,6 +265,15 @@
   transform: none;
 }
 
+/* A read-only universe: only what looks around stays live (data-view-only). */
+.unified-bottom-panel.read-only .piemenu-button:not([data-view-only]) {
+  opacity: 0.35;
+  cursor: default;
+}
+.unified-bottom-panel.read-only .piemenu-button:not([data-view-only]):hover {
+  transform: none;
+}
+
 /* Controller focus. The swell is the canvas pie menu's gamepad swell, not its
    hover swell, and for the same reason: with a mouse the cursor is already
    sitting on the button, so 1.1 only confirms what the pointer says. A pad has

@@ -45,6 +45,12 @@ if (isDevBuild) {
 }
 
 contextBridge.exposeInMainWorld('electron', {
+  sharedLinks: {
+    take: () => ipcRenderer.invoke('shared-link:take'),
+    onAvailable: (callback) => {
+      ipcRenderer.on('shared-link:available', () => callback());
+    }
+  },
   // Platform check
   isElectron: true,
 

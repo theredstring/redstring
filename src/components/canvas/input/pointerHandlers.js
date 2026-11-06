@@ -11,6 +11,7 @@
  * the shared gesture refs these still read.
  */
 import { getNodeDimensions } from '../../../utils.js';
+import { isReadOnlyUniverseOpen, nudgeReadOnlyUniverse } from '../../../store/readOnlyUniverse.js';
 import { clientToCanvas } from '../../../utils/canvas/viewportMath.js';
 import { MOVEMENT_THRESHOLD, MIDDLE_MOUSE_ZOOM_SENSITIVITY, MAX_ZOOM, NODE_WIDTH, NODE_HEIGHT, PAN_DRAG_SENSITIVITY } from '../../../constants';
 import { getActionHoverItem } from '../../../utils/canvas/actionHover.js';
@@ -180,6 +181,7 @@ export function createPointerHandlers(ctxRef) {
    * @returns {boolean} true if a draw was started.
    */
   function beginConnectionDrawFromNode(armedInstanceId, clientX, clientY) {
+    if (isReadOnlyUniverseOpen()) { nudgeReadOnlyUniverse(); return false; }
     const { nodes, isInsideNode, startedOnNode, longPressTimeout, groupLongPressTimeout, mouseInsideNode, anchorPositionUpdatesRef, previewingNodeId, containerRef, setLongPressingInstanceId, panOffsetRef, zoomLevelRef, canvasSize, draggingNodeInfoRef, clampCoordinates, setDrawingConnectionFrom, connectionExitedSourceRef, connectionHoverTargetRef, connectionStretchTrack } = ctxRef.current;
     const srcNode = nodes.find(n => n.id === armedInstanceId);
     if (!srcNode) return false;

@@ -157,6 +157,8 @@ const Header = ({
   onExportTxt,
   onOpenRecentFile,
   onLoadFromExternalLink,
+  onMakeCopy,
+  onCopyLink,
   onOpenForceSim,
   onAutoLayoutGraph,
   onCondenseNodes,
@@ -1193,6 +1195,8 @@ const Header = ({
           onExportTxt={onExportTxt}
           onOpenRecentFile={onOpenRecentFile}
           onLoadFromExternalLink={onLoadFromExternalLink}
+          onMakeCopy={onMakeCopy}
+          onCopyLink={onCopyLink}
           onOpenForceSim={onOpenForceSim}
           onAutoLayoutGraph={onAutoLayoutGraph}
           onCondenseNodes={onCondenseNodes}
@@ -1336,6 +1340,8 @@ const Header = ({
           onExportTxt={onExportTxt}
           onOpenRecentFile={onOpenRecentFile}
           onLoadFromExternalLink={onLoadFromExternalLink}
+          onMakeCopy={onMakeCopy}
+          onCopyLink={onCopyLink}
           onOpenForceSim={onOpenForceSim}
           onAutoLayoutGraph={onAutoLayoutGraph}
           onCondenseNodes={onCondenseNodes}

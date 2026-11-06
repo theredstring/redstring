@@ -1,5 +1,8 @@
 import React, { Profiler, memo, useCallback, useEffect, useMemo, useRef } from 'react';
 import SaveStatusDisplay from '../../../SaveStatusDisplay';
+import ReadOnlyHost from './ReadOnlyHost.jsx';
+import useReadOnlyUniverse from '../../../store/readOnlyUniverse.js';
+import { readSharedLinkFromAddress } from '../../../services/sharedLink.js';
 import StorageSetupModal from '../../StorageSetupModal.jsx';
 import GitReconnectModal from '../../modals/GitReconnectModal.jsx';
 import FileAccessHost from './FileAccessHost.jsx';
@@ -177,6 +180,8 @@ function UniverseHost() {
     let isMounted = true;
 
     const initializeWorkspace = async () => {
+      // A page opened on a shared link is showing that universe. Yours wait.
+      if (readSharedLinkFromAddress()) return;
       try {
         const result = await workspaceService.initialize();
         if (!isMounted) return;
@@ -270,7 +275,11 @@ function UniverseHost() {
             console.log('[NodeCanvas] Onboarding seen but no workspace config. Falling back to browser/auto-connect...');
             // Try to auto-connect (handles IndexedDB/Browser Storage)
             const autoConnected = await fileStorage.autoConnectToUniverse();
-            if (!autoConnected) {
+            const { default: universeBackend } = await import('../../../services/universeBackend.js');
+            if (!autoConnected && universeBackend.getActiveUniverse()) {
+              // A universe kept in this browser: the backend loads it, and saying
+              // "no file" here would blank the canvas if that load finished first.
+            } else if (!autoConnected) {
               console.log('[NodeCanvas] Auto-connect failed. Opening Grid View.');
               // No previous session found -> Open Grid
               storeActions.setUniverseLoaded(true, false);
@@ -393,6 +402,7 @@ function UniverseHost() {
       const shouldShowOnboarding =
         !hasCompletedOnboarding &&
         !suppressForGitFlow &&
+        !readSharedLinkFromAddress() &&
         !isUniverseLoading && (
           !hasUniverseFile ||
           !isUniverseLoaded ||
@@ -487,10 +497,14 @@ function UniverseHost() {
     }
   }, []);
 
+  const readOnlyOpen = useReadOnlyUniverse((s) => s.active !== null);
+
   return (
     <Profiler id="UniverseHost" onRender={onRenderProbe}>
       {/* SaveStatusDisplay Component */}
-      <SaveStatusDisplay hidden={showStorageSetupModal} />
+      <SaveStatusDisplay hidden={showStorageSetupModal || readOnlyOpen} />
+
+      <ReadOnlyHost />
 
       {/* GitHub reconnect — a Git-backed universe failed to load. Yields to
           onboarding, which owns the screen when it's up. */}

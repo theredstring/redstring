@@ -41,6 +41,9 @@ import {
 } from '../utils/deviceDetection.js';
 import { oauthFetch } from './bridgeConfig.js';
 import { storageWrapper } from '../utils/storageWrapper.js';
+import { clearSharedLinkFromAddress, parseSharedLink, readSharedLinkFromAddress } from './sharedLink.js';
+import { describeSharedLinkFailure, fetchSharedUniverse, suggestUniverseNameFromUrl } from './externalUniverseLoader.js';
+import { setReadOnlyFailure, setReadOnlyUniverse } from '../store/readOnlyUniverse.js';
 import {
   storeFileHandleMetadata,
   getFileHandleMetadata,
@@ -266,6 +269,12 @@ class UniverseBackend {
     // the boot race deliberately runs two overlapping loads when the first
     // exceeds LOAD_TIMEOUT_MS. See `_isLoadInFlight`.
     this.loadsInFlight = 0;
+
+    // A universe open read-only, from a shared link: its content, by slug, what
+    // to come back to, and whether this page booted straight into one.
+    this.readOnlyStates = new Map();
+    this.readOnlyReturnSlug = null;
+    this.bootVisit = false;
     // slug -> { promise, allowPermissionPrompt } for reads currently running,
     // so two callers asking for the same universe share one read instead of
     // racing two. See loadUniverseData.
@@ -426,7 +435,8 @@ class UniverseBackend {
    */
   saveToStorage() {
     try {
-      const universesList = Array.from(this.universes.values()).map(universe => {
+      // A universe open read-only is never remembered: it only lives in this session.
+      const universesList = Array.from(this.universes.values()).filter(universe => !universe.readOnly).map(universe => {
         const { localFile, ...rest } = universe;
         return {
           ...rest,
@@ -445,7 +455,9 @@ class UniverseBackend {
       });
 
       storageWrapper.setItem(STORAGE_KEYS.UNIVERSES_LIST, JSON.stringify(universesList));
-      storageWrapper.setItem(STORAGE_KEYS.ACTIVE_UNIVERSE, this.activeUniverseSlug);
+      // The next launch comes back to your universe, not the one you're viewing.
+      const viewing = this.bootVisit || this.getActiveUniverse()?.readOnly;
+      storageWrapper.setItem(STORAGE_KEYS.ACTIVE_UNIVERSE, viewing ? this.readOnlyReturnSlug : this.activeUniverseSlug);
 
       // Save file handles info
       const fileHandlesInfo = {};
@@ -626,7 +638,8 @@ class UniverseBackend {
       sources,
       created,
       lastModified,
-      raw: mergedRaw
+      raw: mergedRaw,
+      ...(mergedRaw.readOnly ? { readOnly: mergedRaw.readOnly } : {})
     };
   }
 
@@ -1437,10 +1450,21 @@ class UniverseBackend {
       umLog('[UniverseBackend] Skipping auto-setup of ALL existing universes to avoid hanging...');
       // await this.autoSetupExistingUniverses(); // DISABLED - can hang during initialization
 
+      // Opened on a shared link: that universe is what this page is for, and
+      // yours stays unread and untouched.
+      const bootLink = readSharedLinkFromAddress();
+      if (bootLink) {
+        this.bootVisit = true;
+        this.readOnlyReturnSlug = this.activeUniverseSlug;
+        this.activeUniverseSlug = null;
+      }
+
       // CRITICAL: Load active universe data into store
       const activeUniverse = this.getActiveUniverse();
 
-      if (activeUniverse) {
+      if (bootLink) {
+        umLog('[UniverseBackend] Opening a shared link instead of the active universe');
+      } else if (activeUniverse) {
         umLog(`[UniverseBackend] Loading active universe into store: ${activeUniverse.name || activeUniverse.slug}`);
         try {
           if (this.restoreHandlesPromise) {
@@ -1720,13 +1744,28 @@ class UniverseBackend {
 
       umLog('[UniverseBackend] Backend service initialized successfully');
 
+      if (bootLink) this.openReadOnlyUniverse(bootLink);
+
+      // Desktop: a redstring:// link, at launch or while running.
+      if (typeof window !== 'undefined' && window.electron?.sharedLinks && !this.sharedLinksRegistered) {
+        this.sharedLinksRegistered = true;
+        const takeLink = async () => {
+          const source = parseSharedLink(await window.electron.sharedLinks.take());
+          if (source) this.openReadOnlyUniverse(source);
+        };
+        window.electron.sharedLinks.onAvailable(takeLink);
+        takeLink().catch((error) => umWarn('[UniverseBackend] Could not read the launch link:', error?.message || error));
+      }
+
       // iOS: a .redstring opened from Files / Mail / AirDrop arrives as a URL
-      // (cold launch or while running) and opens as a new universe.
+      // (cold launch or while running) and opens as a new universe. A shared
+      // link arrives the same way, on both mobile platforms.
       if (isCapacitor() && !this.fileOpenRegistered) {
         this.fileOpenRegistered = true;
         import('./capacitorFileOpen.js')
           .then(({ registerCapacitorFileOpen }) => registerCapacitorFileOpen({
             importText: (text, fileName) => this.importUniverseFromText(text, fileName),
+            openLink: (sourceUrl) => this.openReadOnlyUniverse(sourceUrl),
             notify: (type, message) => this.notifyStatus(type, message)
           }))
           .catch((error) => umWarn('[UniverseBackend] Could not register the file-open handler:', error?.message || error));
@@ -2532,8 +2571,10 @@ class UniverseBackend {
           // it is the device's local copy — what a restart reads back, and
           // where edits made offline live until they reach Git. Autosave used
           // to skip it (the legacy single-slot store below is never read by
-          // any universe load), so a restart dropped those edits.
-          if (universe?.gitRepo?.enabled && universe?.browserStorage?.enabled && universe?.browserStorage?.key) {
+          // any universe load), so a restart dropped those edits. A universe
+          // kept only in this browser is the same case, with no Git to reach.
+          const browserIsItsCopy = universe?.gitRepo?.enabled || universe?.sourceOfTruth === SOURCE_OF_TRUTH.BROWSER;
+          if (browserIsItsCopy && universe?.browserStorage?.enabled && universe?.browserStorage?.key) {
             const blocked = this._localSaveBlocked(slug, universe, state);
             if (blocked) return blocked;
             try {
@@ -3183,6 +3224,21 @@ class UniverseBackend {
       return { universe, storeState: null }; // Already active
     }
 
+    // Your universes haven't been read on a page opened from a shared link.
+    // Going to one is an ordinary launch, with this universe as the active one.
+    if (this.bootVisit && !universe.readOnly) {
+      this.bootVisit = false;
+      this.activeUniverseSlug = key;
+      this.saveToStorage();
+      clearSharedLinkFromAddress();
+      window.location.reload();
+      return { universe, storeState: null };
+    }
+
+    // A read-only universe has nothing to save, and nothing to come back to.
+    const leavingReadOnly = this.getActiveUniverse()?.readOnly ? this.activeUniverseSlug : null;
+    if (leavingReadOnly) options = { ...options, saveCurrent: false };
+
     // Save current universe before switching (unless explicitly disabled)
     // Check if active universe actually exists before trying to save (it might have been deleted)
     if (options.saveCurrent !== false && this.activeUniverseSlug && this.universes.has(this.activeUniverseSlug)) {
@@ -3296,7 +3352,17 @@ class UniverseBackend {
     }
 
     // Load succeeded — NOW commit the switch.
+    if (universe.readOnly && !leavingReadOnly && !this.bootVisit) this.readOnlyReturnSlug = this.activeUniverseSlug;
+    if (leavingReadOnly) {
+      this.universes.delete(leavingReadOnly);
+      this.readOnlyStates.delete(leavingReadOnly);
+    }
     this.activeUniverseSlug = key;
+    // Before the store loads: the load is not an edit, and nothing after it saves.
+    setReadOnlyUniverse(universe.readOnly
+      ? { slug: key, name: universe.name, sourceUrl: universe.readOnly.sourceUrl }
+      : null);
+    if (!universe.readOnly) clearSharedLinkFromAddress();
     this.saveToStorage();
     this.notifyStatus('info', `Switched to universe: ${universe.name}`);
 
@@ -3401,6 +3467,10 @@ class UniverseBackend {
     let universe = this.getActiveUniverse();
     if (!universe) {
       throw new Error('No active universe to save');
+    }
+
+    if (universe.readOnly) {
+      return { results: [], errors: ['Save suppressed: this universe is read only'] };
     }
 
     // Don't auto-save while a slot conflict is pending user resolution.
@@ -4355,6 +4425,7 @@ class UniverseBackend {
    * caller that needs to ask for local file access, so that case starts its own.
    */
   async loadUniverseData(universe, options = {}) {
+    if (universe?.readOnly) return this.readOnlyStates.get(universe.slug) ?? null;
     const slug = universe?.slug;
     const wantsPrompt = options.allowPermissionPrompt !== false;
     const existing = slug ? this._inFlightLoads?.get(slug) : null;
@@ -7072,6 +7143,8 @@ class UniverseBackend {
 
     umLog('[UniverseBackend] Creating universe via direct implementation...');
 
+    this._forgetReadOnlyUniverse();
+
     const slug = this.generateUniqueSlug(name);
     const safeName = (typeof name === 'string' && name.trim().length > 0) ? name : slug;
     const universe = this.safeNormalizeUniverse({
@@ -7457,6 +7530,10 @@ class UniverseBackend {
     let universe = this.getUniverse(universeSlug);
     if (!universe) {
       throw new Error(`Universe ${universeSlug} not found`);
+    }
+
+    if (universe.readOnly) {
+      throw new Error('Refusing to save: this universe is read only. Make a copy to keep it.');
     }
 
     // Identity guard: never write state that belongs to a different universe
@@ -8437,6 +8514,143 @@ class UniverseBackend {
 
     this.notifyStatus('success', `Opened ${fileName} as a new universe`);
     return { slug, nodeCount };
+  }
+
+  /**
+   * Open a hosted universe read-only, from a shared link. It comes in through
+   * the ordinary switch, so whatever is open is saved and let go as it always
+   * is. Nothing is written for it, and it's forgotten when it closes. A link
+   * that can't be read changes nothing.
+   */
+  async openReadOnlyUniverse(sourceUrl) {
+    const atBoot = this.bootVisit === true;
+    try {
+      await this.initialize();
+      const parsed = await fetchSharedUniverse(sourceUrl, {
+        getToken: () => persistentAuth.getAccessToken()
+      });
+      const validation = validateFormatVersion(parsed);
+      if (!validation.valid) {
+        throw new Error(validation.tooNew
+          ? `This universe was made with a newer version of Redstring (${validation.version}). Update the app to open it.`
+          : (validation.error || 'This file is not a format this version can open.'));
+      }
+      const { storeState, errors } = importFromRedstring(parsed);
+      if (errors?.length) umWarn('[UniverseBackend] Import of a shared link reported errors:', errors);
+      const nodeCount = storeState?.nodePrototypes?.size ?? 0;
+      const graphCount = storeState?.graphs?.size ?? 0;
+      if (nodeCount === 0 && graphCount === 0) {
+        throw new Error('This universe has no things or webs in it.');
+      }
+
+      const name = suggestUniverseNameFromUrl(sourceUrl);
+      const slug = this.generateUniqueSlug(name);
+      const universe = this.safeNormalizeUniverse({
+        slug,
+        name,
+        sourceOfTruth: SOURCE_OF_TRUTH.LOCAL,
+        localFile: { enabled: false, path: `${slug}.redstring` },
+        gitRepo: { enabled: false, linkedRepo: null, schemaPath: 'schema' },
+        readOnly: { sourceUrl }
+      });
+      this.universes.set(slug, universe);
+      this.readOnlyStates.set(slug, storeState);
+      try {
+        await this.switchActiveUniverse(slug);
+      } catch (error) {
+        this.universes.delete(slug);
+        this.readOnlyStates.delete(slug);
+        throw error;
+      }
+      return { slug };
+    } catch (error) {
+      umWarn('[UniverseBackend] Could not open a shared link:', error?.message || error);
+      setReadOnlyFailure({ message: describeSharedLinkFailure(error), sourceUrl, atBoot });
+      if (atBoot && !this.getActiveUniverse()) this.storeOperations?.setUniverseLoaded(true, false);
+      return null;
+    }
+  }
+
+  /** Whatever opens next replaces a read-only universe, with nothing to save. */
+  _forgetReadOnlyUniverse() {
+    const viewing = this.getActiveUniverse();
+    if (viewing?.readOnly) {
+      this.universes.delete(viewing.slug);
+      this.readOnlyStates.delete(viewing.slug);
+      this.activeUniverseSlug = null;
+    }
+    setReadOnlyUniverse(null);
+    this.bootVisit = false;
+    clearSharedLinkFromAddress();
+  }
+
+  /** Close the read-only universe and go back to what was open before it. */
+  async closeReadOnlyUniverse() {
+    const viewing = this.getActiveUniverse();
+    if (!viewing?.readOnly) return;
+    const returnTo = this.readOnlyReturnSlug;
+    if (!this.bootVisit && returnTo && this.universes.has(returnTo)) {
+      await this.switchActiveUniverse(returnTo, { saveCurrent: false });
+      return;
+    }
+    this.bootVisit = false;
+    clearSharedLinkFromAddress();
+    window.location.reload();
+  }
+
+  /**
+   * Make a copy of the open universe and carry on in it: a new universe of
+   * your own, saved the way a new one is. From a read-only universe this is
+   * the step that makes it yours.
+   */
+  async makeCopyOfActiveUniverse() {
+    await this.initialize();
+    const source = this.getActiveUniverse();
+    const state = this.storeOperations?.getState?.();
+    if (!source || !state) throw new Error('No universe is open to copy.');
+    if (state.isUniverseLoading || state.universeLoadingError) {
+      throw new Error("This universe hasn't finished loading, so it can't be copied yet.");
+    }
+
+    const fromLink = !!source.readOnly;
+    if (!fromLink) {
+      // As a switch does: the original is saved, and nothing still waiting to
+      // be written can land on the copy.
+      try {
+        await this.saveActiveUniverse();
+      } catch (error) {
+        umWarn('[UniverseBackend] Save before copying failed; the copy takes what is open:', error);
+      }
+      const { saveCoordinator } = await import('../backend/sync/index.js');
+      saveCoordinator?.cancelPendingSaves?.();
+      const { gitAutosavePolicy } = await import('./GitAutosavePolicy.js');
+      gitAutosavePolicy?.clearPending?.();
+    }
+
+    const { storeState } = importFromRedstring(exportToRedstring(state));
+    if (!storeState) throw new Error('This universe could not be copied.');
+
+    // Saved from the first moment, with no file or repo to choose first. On iOS
+    // and Android that's the managed file; elsewhere the browser-backed shell
+    // onboarding starts from. Either way its slots are there to fill.
+    const created = await this.createUniverse(fromLink ? source.name : `Copy of ${source.name}`, isCapacitor()
+      ? { enableGit: false, enableLocal: true }
+      : { enableGit: false, enableLocal: false, sourceOfTruth: SOURCE_OF_TRUTH.BROWSER });
+    // A page booted on a link never started autosave: there was nothing to save.
+    await this.ensureSaveCoordinator();
+    this.storeOperations.loadUniverseFromFile({ ...storeState, _universeSlug: created.slug });
+    try {
+      await this.forceSave(created.slug, null, { skipGit: true });
+    } catch (error) {
+      // The copy is open and autosave will retry; say so rather than fail.
+      umWarn('[UniverseBackend] First save of a copy failed; autosave will retry:', error);
+    }
+    if (fromLink && typeof window !== 'undefined') {
+      // They have a universe of their own now, so onboarding has nothing to offer.
+      try { localStorage.setItem('redstring-welcome-seen', 'true'); } catch { /* storage is off */ }
+    }
+    this.notifyStatus('success', `Made a copy: ${created.name}`);
+    return { slug: created.slug };
   }
 
   /**

@@ -5,6 +5,7 @@
  * Pie and carousel lifecycle changes go through the pie machine
  * (`dispatchPie`, P5.02b step 5) rather than setters captured in `ctx`.
  */
+import { dimEditsWhenReadOnly } from './readOnlyButtons.js';
 import { ArrowLeft, ArrowUpFromDot, Bookmark, ChevronLeft, ChevronRight, ClipboardCopy, CopyPlus, CornerDownLeft, CornerUpLeft, Edit3, ImagePlus, Layers, NotebookText, Orbit, Package, PackageOpen, Palette, Plus, Scaling, SendToBack, Sparkles, Trash2 } from 'lucide-react';
 import BookSearch from '../../shared/bookSearchIcon.js';
 import { THUMBNAIL_MAX_DIMENSION, nextNodeSizeStep, nodeSizeLabel } from '../../../constants';
@@ -341,6 +342,16 @@ export function buildNodePieMenuPages(ctx) {
 }
 
 export function buildTargetPieMenuButtons(ctx) {
+  // Expand with no definition yet would make one.
+  const hasNoDefinition = (button) => {
+    if (button.id !== 'expand-tab') return false;
+    const node = ctx.nodes?.find((n) => n.id === ctx.selectedNodeIdForPieMenu);
+    return !useGraphStore.getState().nodePrototypes.get(node?.prototypeId)?.definitionGraphIds?.length;
+  };
+  return dimEditsWhenReadOnly(buildButtonsForTarget(ctx), hasNoDefinition);
+}
+
+function buildButtonsForTarget(ctx) {
   const {
     abstractionCarouselNode, abstractionCarouselVisible, activeGraphId, carouselAnimationState,
     carouselFocusedNode, carouselPieMenuStage, currentAbstractionDimension, nodeDefinitionIndices,

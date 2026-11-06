@@ -231,6 +231,32 @@ describe('electron/main.cjs', () => {
     });
   });
 
+  describe('redstring:// links', () => {
+    it('a packaged build registers the scheme; development does not', async () => {
+      ctx = await boot({ isPackaged: true });
+      expect(ctx.fake.calls.protocolClients).toEqual(['redstring']);
+      fs.rmSync(ctx.tmp, { recursive: true, force: true });
+      ctx = await boot({ isPackaged: false });
+      expect(ctx.fake.calls.protocolClients).toBeUndefined();
+    });
+
+    it('holds an open link until the renderer takes it, once; ignores anything else', async () => {
+      ctx = await boot({ isPackaged: true });
+      const openUrl = (url) => ctx.fake.electron.app.emit('open-url', { preventDefault() {} }, url);
+      openUrl('redstring://auth?code=stolen');
+      expect(await ctx.invoke('shared-link:take', ipcEvent(APP))).toBe(null);
+      openUrl('redstring://open?gh=a/b/main/f.redstring');
+      expect(await ctx.invoke('shared-link:take', ipcEvent(APP))).toBe('redstring://open?gh=a/b/main/f.redstring');
+      expect(await ctx.invoke('shared-link:take', ipcEvent(APP))).toBe(null);
+    });
+
+    it('takes a link from a second launch, on Windows and Linux', async () => {
+      ctx = await boot({ isPackaged: true });
+      ctx.fake.electron.app.emit('second-instance', {}, ['/app', '--flag', 'redstring://open?url=x']);
+      expect(await ctx.invoke('shared-link:take', ipcEvent(APP))).toBe('redstring://open?url=x');
+    });
+  });
+
   describe('navigation and permissions (S-23)', () => {
     beforeEach(async () => { ctx = await boot({ isPackaged: true }); });
 

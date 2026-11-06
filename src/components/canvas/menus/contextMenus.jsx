@@ -4,6 +4,7 @@
  * over as `ctx`, with the same callback dependencies, so every action sees what
  * it saw before.
  */
+import { dimMenuEditsWhenReadOnly } from '../pie/readOnlyButtons.js';
 import { Activity, ArrowUpFromDot, Bookmark, ClipboardPaste, Combine, Edit3, Grid3x3, Layers, LayoutGrid, Merge, Orbit, PackageOpen, Palette, RefreshCw, Sigma, Sparkles, Trash2 } from 'lucide-react';
 import { SURFACES as WIZARD_SURFACES } from '../../../wizard/prompts/intents.js';
 import { clientToCanvas } from '../../../utils/canvas/viewportMath.js';
@@ -152,7 +153,7 @@ export function buildCanvasContextMenuOptions(clientX, clientY, ctx) {
       }
     });
   }
-  return options;
+  return dimMenuEditsWhenReadOnly(options);
 }
 
 export function buildNodeContextMenuOptions(instanceId, ctx) {
@@ -166,7 +167,7 @@ export function buildNodeContextMenuOptions(instanceId, ctx) {
   if (!node) return [];
 
   // Clockwise order starting from top center: Open Web, Decompose, Generalize/Specify, Delete, Edit, Save, Color
-  return [
+  return dimMenuEditsWhenReadOnly([
     // Open Web (expand-tab) - core functionality from PieMenu expand action
     {
       label: 'Open Web',
@@ -320,5 +321,5 @@ export function buildNodeContextMenuOptions(instanceId, ctx) {
         setNodeControlPanelVisible(false);
       }
     }
-  ];
+  ]);
 }
