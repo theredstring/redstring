@@ -104,6 +104,7 @@ export function buildEdgePieMenuButtons(ctx) {
       id: 'edge-open-panel',
       label: 'Open in Panel',
       icon: NotebookText,
+      dismissesControlPanel: true,
       action: () => {
         const defNodeId = getDefinitionNodeId();
         if (defNodeId) {

@@ -5,6 +5,7 @@
 import {
   test, expect,
   openFixture, selectedNodeIds, storeEval, expectBareCanvas, pieButton, openPieMenu, clickCenter,
+  activeGraphSnapshot, edgePoint, selectedEdgeIds, waitForCameraSettled,
 } from './helpers.js';
 
 test('F6 click opens the pie menu; Save and Open in Panel work; clicking off closes it', async ({ page }) => {
@@ -54,4 +55,46 @@ test('F6b turning the wizard off and on while the pie is open updates its button
   await expect(wizard).toHaveCount(0);
   await setWizard(true);
   await expect(wizard).toHaveCount(1);
+});
+
+// The bottom panels' Open in Panel leaves for the right panel rather than sitting
+// over the tab it opened. (The canvas pie stays up: F6 above.)
+async function openInPanelFromBottomPanel(page, panelSelector, nodeId) {
+  const panel = page.locator(panelSelector);
+  await clickCenter(page, panel.locator('.piemenu-button[title="Open in Panel"]').first());
+  await expect.poll(() => storeEval(page, (st) => ({
+    expanded: st.rightPanelExpanded,
+    activeTab: st.rightPanelTabs.find((t) => t.isActive),
+  }))).toMatchObject({ expanded: true, activeTab: { type: 'node', nodeId } });
+  await expect(panel).toHaveCount(0);
+}
+
+test('F6c a connection panel closes on Open in Panel', async ({ page }) => {
+  await openFixture(page, 'small');
+  await storeEval(page, (st) => st.updateEdge('e-beta-gamma', (d) => { d.definitionNodeIds = ['p-gamma']; }));
+  const p = await edgePoint(page, 'e-beta-gamma', 0.35);
+  await page.mouse.move(p.x, p.y, { steps: 4 });
+  await page.mouse.click(p.x, p.y);
+  await expect.poll(() => selectedEdgeIds(page)).toEqual(['e-beta-gamma']);
+  await waitForCameraSettled(page);
+  await openInPanelFromBottomPanel(page, '.unified-bottom-panel.mode-connections', 'p-gamma');
+  await expect.poll(() => selectedEdgeIds(page)).toEqual([]);
+});
+
+test('F6d a Thing-group panel closes on Open in Panel', async ({ page }) => {
+  await openFixture(page, 'small');
+  const before = await activeGraphSnapshot(page);
+  const [pairId] = Object.entries(before.groups).find(([, g]) => g.name === 'Pair');
+  await storeEval(page, (st, id) => st.convertGroupToNodeGroup(st.activeGraphId, id, 'p-gamma'), pairId);
+  await clickCenter(page, page.locator(`svg.canvas g[data-group-id="${pairId}"] .group-label`).first());
+  await openInPanelFromBottomPanel(page, '.unified-bottom-panel.mode-nodegroup', 'p-gamma');
+});
+
+test('F6e the carousel panel closes on Open in Panel', async ({ page }) => {
+  await openFixture(page, 'small');
+  await openPieMenu(page, 'i-alpha');
+  await clickCenter(page, pieButton(page, 'layers'));
+  await expect(page.locator('.unified-bottom-panel.abstraction-control-panel')).toBeVisible();
+  await waitForCameraSettled(page);
+  await openInPanelFromBottomPanel(page, '.unified-bottom-panel.abstraction-control-panel', 'p-alpha');
 });

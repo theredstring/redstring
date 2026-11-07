@@ -525,7 +525,16 @@ const UnifiedBottomControlPanel = ({
       x: rect.left + rect.width / 2,
       y: rect.top
     });
-  }, []);
+    if (button.dismissesControlPanel) onDismiss?.();
+  }, [onDismiss]);
+
+  // Open in Panel moves the work to the right panel; left up, this panel sits
+  // over the tab it just opened. The canvas pies share the action and stay up,
+  // so this belongs to the panel's buttons, not the action.
+  const openInPanelAndDismiss = (open) => () => {
+    open?.();
+    onDismiss?.();
+  };
 
   // Connections have no pages — the whole set fits one strip here, and the
   // canvas menu wraps it into rows rather than paging it.
@@ -1346,7 +1355,7 @@ const UnifiedBottomControlPanel = ({
                 <div
                   className="piemenu-button"
                   data-view-only
-                  onClick={onOpenNodePrototypeInPanel}
+                  onClick={openInPanelAndDismiss(onOpenNodePrototypeInPanel)}
                   title="Open in Panel"
                   onMouseEnter={() => triggerActionHover('control-open-panel', 'Open in Panel')}
                   onMouseLeave={clearActionHover}
@@ -1523,7 +1532,7 @@ const UnifiedBottomControlPanel = ({
                 <div
                   className="piemenu-button"
                   data-view-only
-                  onClick={onOpenInPanel}
+                  onClick={openInPanelAndDismiss(onOpenInPanel)}
                   title="Open in Panel"
                   onMouseEnter={() => triggerActionHover('control-open-panel', 'Open in Panel')}
                   onMouseLeave={clearActionHover}
@@ -1608,7 +1617,7 @@ const UnifiedBottomControlPanel = ({
                     <div
                       className="piemenu-button"
                   data-view-only
-                      onClick={onOpenInPanel}
+                      onClick={openInPanelAndDismiss(onOpenInPanel)}
                       title="Open in Panel"
                       onMouseEnter={() => triggerActionHover('control-open-panel', 'Open in Panel')}
                       onMouseLeave={clearActionHover}
