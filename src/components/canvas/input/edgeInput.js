@@ -12,13 +12,13 @@ import { isJustAfterNodeDrop } from './dropCooldown.js';
 
 /** The mouse handlers a connection's hit stroke spreads. */
 export function edgeHitboxHandlersFor(ctx, edgeId) {
-  const { edgeTouchHandlers, ignoreCanvasClick, selectedEdgeIds, storeActions } = ctx;
+  const { edgeTouchHandlers, gestureBlockRef, ignoreCanvasClick, selectedEdgeIds, storeActions } = ctx;
   return ({
     ...edgeTouchHandlers(edgeId),
     onClick: (e) => {
       e.stopPropagation();
       ignoreCanvasClick.current = true;
-      if (isJustAfterNodeDrop()) return;
+      if (isJustAfterNodeDrop() || gestureBlockRef?.current) return;
       haptic('edgeSelect');
       if (e.ctrlKey || e.metaKey) {
         if (selectedEdgeIds.has(edgeId)) {
@@ -153,8 +153,11 @@ export function edgePointerDownTouchWith(ctx, edgeId, e) {
 
 /** Select a connection from a click, preferring the nearest (hovered) one over the hitbox on top. */
 export function selectEdgeFromClickWith(ctx, clickedEdgeId, e) {
-  const { findEdgeAtClientPoint, selectedEdgeIds, storeActions } = ctx;
-  if (isJustAfterNodeDrop()) return;
+  const { findEdgeAtClientPoint, gestureBlockRef, selectedEdgeIds, storeActions } = ctx;
+  // The click that ends a pan. Panning carries the canvas with the cursor, so
+  // the release lands on the same connection the press did and the browser
+  // calls it a click on it. handleMouseUp arms the gesture block after a pan.
+  if (isJustAfterNodeDrop() || gestureBlockRef?.current) return;
   const targetEdgeId = useCanvasUIStore.getState().hoveredEdgeInfo?.edgeId
     || findEdgeAtClientPoint(e.clientX, e.clientY, 'mouse')?.edgeId
     || clickedEdgeId;

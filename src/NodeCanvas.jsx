@@ -2611,7 +2611,7 @@ function NodeCanvas() {
   // to the clicked edge when no hover has been computed (e.g. the pointer never
   // moved over the canvas first).
   const selectEdgeFromClick = useCallback((...args) => selectEdgeFromClickWith({
-    findEdgeAtClientPoint, selectedEdgeIds, storeActions,
+    findEdgeAtClientPoint, gestureBlockRef, selectedEdgeIds, storeActions,
   }, ...args), [selectedEdgeIds, storeActions, findEdgeAtClientPoint]);
 
   // Nearest-wins resolution for a touch/pen tap that landed on a connection's
@@ -2703,7 +2703,7 @@ function NodeCanvas() {
   // Shared pointer handlers for edge hitboxes (line stroke + label rect) so the
   // connection label text is just as clickable as the line itself.
   const getEdgeHitboxHandlers = useCallback((...args) => edgeHitboxHandlersFor({
-    edgeTouchHandlers, ignoreCanvasClick, selectedEdgeIds, storeActions,
+    edgeTouchHandlers, gestureBlockRef, ignoreCanvasClick, selectedEdgeIds, storeActions,
   }, ...args), [selectedEdgeIds, storeActions, edgeTouchHandlers]);
 
   // Canvas pointer handlers (P4.04a: components/canvas/input/pointerHandlers.js):

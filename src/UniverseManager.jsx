@@ -42,7 +42,7 @@ import StatusBanner from './components/StatusBanner.jsx';
 import universeBackend from './services/universeBackend.js';
 import universeBackendBridge from './services/universeBackendBridge.js';
 import repoDiscoveryCache from './services/repoDiscoveryCache.js';
-import { readUniverseUpload } from './services/universeUpload.js';
+import { freeRepoTarget, readUniverseUpload } from './services/universeUpload.js';
 import saveCoordinator from './services/SaveCoordinator';
 import { settleUnsavedChanges, hasChangesOnlyASaveKeeps } from './components/canvas/dialogs/unsavedChanges.js';
 import PanelIconButton from './components/shared/PanelIconButton.jsx';
@@ -1659,22 +1659,40 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
   const handleAttachRepoCreateNew = async (owner, repoName, repo, targetSlug = repositoryTargetSlug) => {
     try {
       setLoading(true);
+      const hasGitAuth = hasOAuth || hasApp;
 
-      await universeManagerService.attachGitRepository(targetSlug, {
+      // A new file, so never one that's already there. Slugs are only unique
+      // on this device: a copy of a shared universe keeps the original's slug,
+      // and in the original's repository that path is the original's file.
+      const inRepo = hasGitAuth
+        ? await universeManagerService.discoverUniverses({
+          user: owner,
+          repo: repoName,
+          authMethod: dataAuthMethod || 'oauth'
+        }, { silent: true })
+        : [];
+      const { folder, file } = freeRepoTarget(targetSlug, inRepo || []);
+
+      const attached = await universeManagerService.attachGitRepository(targetSlug, {
         user: owner,
         repo: repoName,
         authMethod: dataAuthMethod || 'oauth',
-        universeFolder: targetSlug,
-        universeFile: `${targetSlug}.redstring`
+        universeFolder: folder,
+        universeFile: file
       });
+      // Without a local file, attaching already made the repository primary.
+      const hasLocal = !!attached?.universes?.find(u => u.slug === targetSlug)?.raw?.localFile?.enabled;
 
       // Initialize the repository with current universe data
       umLog(`[UniverseManager] Initializing repository with universe data for ${targetSlug}`);
-      const hasGitAuth = hasOAuth || hasApp;
 
       let initialSaveOk = false;
       try {
-        await universeManagerService.forceSave(targetSlug, hasGitAuth ? undefined : { skipGit: true });
+        // forceSave reports a failed Git leg in its result rather than throwing.
+        const saved = await universeBackendBridge.forceSave(targetSlug, undefined, hasGitAuth ? undefined : { skipGit: true });
+        if (hasGitAuth && saved?.savedTo?.git?.success !== true) {
+          throw new Error(saved?.savedTo?.git?.error || 'nothing was written to the repository');
+        }
         initialSaveOk = true;
         if (hasGitAuth) {
           setSyncStatus({ type: 'success', message: `Linked @${owner}/${repoName} and initialized with universe data` });
@@ -1705,7 +1723,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
         } catch (e) {
           umWarn('[UniverseManager] Failed to set Source of Truth after linking:', e);
         }
-      } else if (hasGitAuth && initialSaveOk) {
+      } else if (hasGitAuth && initialSaveOk && hasLocal) {
         setConfirmDialog({
           title: 'Set repository as source of truth?',
           message: `@${owner}/${repoName} is linked and your current data has been pushed to it. Make the repository the primary source for saves and loads? Your local file will remain as a backup.`,
