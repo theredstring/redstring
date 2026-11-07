@@ -4,9 +4,33 @@ All notable changes to Redstring are documented in this file. Logs should be bri
 
 Versions before 0.1.0-alpha were never released. They are numbered after the fact to mark milestones in development.
 
+## [0.15.11] (1.0.0 pre-release) - 2026-11-06
+
+One more pre-release build of Redstring 1.0.0, adding shared links as an 11th hour major feature.
+
+### Added
+- **Share a universe by link.** A universe in a GitHub repository has a link: Copy Link in its Share section in the Universes panel, or under File. The section says who the link opens for, and Manage Access goes to the repository's settings. A link grants nothing; the host decides who can read the file.
+- **Links open read only in the browser**, with Open in App for the desktop and mobile apps. Nothing is saved, and the universe stays off your list.
+- **Links reach more files.** A link can point to any hosted .redstring file its host lets the app read, including a Dropbox link as copied. A private GitHub file opens with your own account.
+- **Read Only universes.** Look through everything: search, open webs, select Things, flip through definitions. Editing buttons dim, and the Wizard stays on but only reads. Load from External Link's Just View opens this way too.
+- **Make a Copy** turns a read-only universe into your own, from the Read Only pill, the Universes panel or File. It copies your own universes too.
+- **Upload Universe File** in the repository picker adds a .redstring file to a repository as a new universe.
+
+### Changed
+- **The header has one Search.** Its title chooses where it looks: everything, open webs, the active web or saved Things.
+- **Auto Layout has a button in the header.**
+- **The Wizard checks more of what it builds**: connection names that pack in too much, and connections like "has part" where a Thing belongs inside the web.
+- **Web previews fit their connections**, so a curved one no longer runs past the edge.
+
+### Fixed
+- **A universe kept only in the browser lost its edits on reload.**
+- **Load from External Link took two clicks** with the Universes panel closed.
+- **Items in the Redstring menu's nested submenus ignored clicks.**
+- **The Equations section missed formulas opened in place.**
+
 ## [0.15.10] (1.0.0 pre-release) - 2026-10-30
 
-This is the pre-release build of Redstring 1.0.0.
+This is a pre-release build of Redstring 1.0.0.
 
 ### Added
 - **Formulas.** Right-click the canvas › New Formula, then type an equation in Math or Code notation or pick one from the formula bank. It's built on the web as Things, one for each quantity, and drawn as the formula. Its pie menu switches between the formula and its Things, and between names and symbols. Copy puts its text on the clipboard too.
