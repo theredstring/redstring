@@ -13,6 +13,8 @@ import { showNotice } from '../shared/appDialogs.js';
 import { buildSharedLink, isInstalledApp, openInApp } from '../../services/sharedLink.js';
 import { sharedLinkForUniverse } from '../../services/universeShare.js';
 import ShareUniverse from './ShareUniverse.jsx';
+import useCopyHandoff from '../../store/copyHandoff.js';
+import './CopyHandoff.css';
 
 
 function formatWhen(timestamp) {
@@ -75,6 +77,8 @@ const UniversesList = ({
   isMobile = false
 }) => {
   const theme = useTheme();
+  const copyPhase = useCopyHandoff((s) => s.phase);
+  const copySlug = useCopyHandoff((s) => s.slug);
   // Whether this browser can hold a universe in a file at all: Firefox, Safari and
   // most mobile browsers have no save picker. Phones stay out even where one exists,
   // since the backend runs them Git-only. The iOS app is also deviceType "mobile"
@@ -619,6 +623,10 @@ const UniversesList = ({
               // the display name.
               const linkedFilePath = (universe.raw?.localFile?.enabled && universe.raw?.localFile?.path) || null;
 
+              // The copy's row once the list has it; until then, the row it came from.
+              const copyLanded = copyPhase === 'landing' && universe.slug === copySlug && !isReadOnly;
+              const copyRunning = isActive && !!copyPhase && !copyLanded;
+
               return (
                 <div
                   key={universe.slug}
@@ -628,6 +636,7 @@ const UniversesList = ({
                     backgroundColor: theme.canvas.bg,
                     padding: isVerySlim ? 8 : 12,
                     position: 'relative',
+                    pointerEvents: copyPhase ? 'none' : undefined,
 
                     display: 'flex',
                     flexDirection: 'column',
@@ -700,7 +709,7 @@ const UniversesList = ({
                           </span>
                         )}
                         {isReadOnly && (
-                          <span style={{
+                          <span className="universe-copy-chip" data-folded={copyRunning || undefined} style={{
                             fontSize: '0.6rem',
                             padding: isVerySlim ? '2px 5px' : '2px 6px',
                             borderRadius: 10,
@@ -767,6 +776,8 @@ const UniversesList = ({
                       gap: isVerySlim ? 2 : (isSlim ? 4 : 6),
                       alignItems: 'center',
                       flexShrink: 0,
+                      opacity: copyRunning ? 0.35 : 1,
+                      transition: 'opacity 0.15s ease',
                       // A read-only row has one button, the way out: in the
                       // corner, not on a line of its own under the name.
                       ...(isVerySlim && isReadOnly ? { position: 'absolute', top: 4, right: 4 } : {})
@@ -857,7 +868,27 @@ const UniversesList = ({
                     </div>
                   </div>
 
+                  {(copyRunning || copyLanded) && (
+                    <div
+                      data-testid="copy-handoff"
+                      className={`universe-copy-line${copyLanded ? ' is-landed' : ''}`}
+                      style={{
+                        paddingLeft: isVerySlim ? 0 : (isSlim ? 12 : 24),
+                        '--copy-bar-track': theme.canvas.border,
+                        '--copy-bar-run': theme.darkMode ? '#CCAAA8' : theme.canvas.brand
+                      }}
+                    >
+                      <div>
+                        <div style={{ fontSize: '0.75rem', color: theme.canvas.textSecondary }}>
+                          Making a copy
+                        </div>
+                        <div className="universe-copy-bar" />
+                      </div>
+                    </div>
+                  )}
+
                   {isActive && isReadOnly && (
+                    <div className="universe-copy-fold" data-folded={copyRunning || undefined}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8, paddingLeft: isVerySlim ? 0 : (isSlim ? 12 : 24) }}>
                       <div style={{ fontSize: '0.75rem', color: theme.canvas.textSecondary }}>
                         Nothing is saved. Make a copy to store and edit.
@@ -903,10 +934,12 @@ const UniversesList = ({
                         />
                       </div>
                     </div>
+                    </div>
                   )}
 
                   {/* Expanded Content - Only for Active Universe */}
                   {isActive && !isReadOnly && (
+                    <div className={copyLanded ? 'universe-copy-opens' : undefined}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingLeft: isVerySlim ? 8 : (isSlim ? 12 : 24) }}>
                       <ShareUniverse universe={universe} onLinkRepo={onLinkRepo} isVerySlim={isVerySlim} />
 
@@ -1422,6 +1455,7 @@ const UniversesList = ({
                         </div>
                       </div>
 
+                    </div>
                     </div>
                   )}
                 </div>

@@ -1,0 +1,128 @@
+/* A copy being made, on its row in Universes: the read-only details fold up, a
+   bar runs while the copy is made, and the row opens up as your own. Heights go
+   through grid rows, which can animate to and from auto. The row's flex gap is
+   10px, hence the margins: a folded part leaves no gap behind. */
+
+.universe-copy-chip {
+  max-width: 80px;
+  max-height: 20px;
+  overflow: hidden;
+  transition: max-width 0.2s ease, max-height 0.2s ease, padding 0.2s ease, opacity 0.15s ease;
+}
+
+.universe-copy-chip[data-folded] {
+  max-width: 0;
+  max-height: 0;
+  padding: 0 !important;
+  border-width: 0 !important;
+  opacity: 0;
+}
+
+.universe-copy-fold {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 0.2s ease, margin-top 0.2s ease, opacity 0.15s ease;
+}
+
+.universe-copy-fold > * {
+  min-height: 0;
+}
+
+.universe-copy-fold[data-folded] {
+  grid-template-rows: 0fr;
+  margin-top: -10px;
+  opacity: 0;
+}
+
+.universe-copy-fold[data-folded] > * {
+  overflow: hidden;
+}
+
+.universe-copy-line {
+  display: grid;
+  grid-template-rows: 1fr;
+  animation: universe-copy-line-in 0.2s ease;
+}
+
+.universe-copy-line > * {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.universe-copy-line.is-landed {
+  animation: universe-copy-line-out 0.3s ease forwards;
+}
+
+.universe-copy-bar {
+  position: relative;
+  height: 3px;
+  margin-top: 6px;
+  border-radius: 2px;
+  overflow: hidden;
+  background-color: var(--copy-bar-track);
+}
+
+/* Transform only: it keeps running while the copy holds the main thread. */
+.universe-copy-bar::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  border-radius: 2px;
+  background-color: var(--copy-bar-run);
+  will-change: transform;
+  animation: universe-copy-bar-run 1.1s linear infinite;
+}
+
+.is-landed .universe-copy-bar::before {
+  width: 100%;
+  animation: none;
+}
+
+.universe-copy-opens {
+  display: grid;
+  grid-template-rows: 1fr;
+  animation: universe-copy-opens 0.4s ease;
+}
+
+.universe-copy-opens > * {
+  min-height: 0;
+  overflow: hidden;
+}
+
+@keyframes universe-copy-bar-run {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(250%); }
+}
+
+@keyframes universe-copy-line-in {
+  from { grid-template-rows: 0fr; opacity: 0; }
+  to { grid-template-rows: 1fr; opacity: 1; }
+}
+
+@keyframes universe-copy-line-out {
+  from { grid-template-rows: 1fr; opacity: 1; margin-bottom: 0; }
+  to { grid-template-rows: 0fr; opacity: 0; margin-bottom: -10px; }
+}
+
+@keyframes universe-copy-opens {
+  from { grid-template-rows: 0fr; opacity: 0; margin-top: -10px; }
+  to { grid-template-rows: 1fr; opacity: 1; margin-top: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .universe-copy-chip,
+  .universe-copy-fold {
+    transition: none;
+  }
+
+  .universe-copy-line,
+  .universe-copy-line.is-landed,
+  .universe-copy-opens {
+    animation-duration: 0.01ms;
+  }
+
+  .universe-copy-bar::before {
+    animation-duration: 2.4s;
+  }
+}

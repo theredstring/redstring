@@ -11,6 +11,7 @@
 import { clientToCanvas } from '../../../utils/canvas/viewportMath.js';
 import { groupDragOffsets } from '../../../utils/canvas/canvasHitTest.js';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
+import { isReadOnlyUniverseOpen } from '../../../store/readOnlyUniverse.js';
 
 // The mounted canvas's group input (there is one canvas), for things that are
 // groups underneath but drawn their own way: a formula is a Thing-group, and
@@ -31,6 +32,7 @@ export function createGroupInputHandlers(ctxRef) {
   canvasGroupInput = {
     handlers,
     isDragging: () => !!ctxRef.current?.nodeDrag?.draggingNodeInfoRef?.current,
+    isPanning: () => !!ctxRef.current?.isPanningRef?.current,
     /**
      * A touch on the group that was a tap, handled by its owner: what the
      * title's own tap does first (stop the long press, drop the touch's
@@ -69,9 +71,11 @@ function createHandlers(ctxRef) {
   return {
     titleClick(e, entry) {
       const { group, effectiveGroupName } = entry;
-      const { wasDraggingRef, mouseMoved, isDoublePress, setEditingGroupId, setTempGroupName, setSelectedGroup, setSelectedInstanceIds, storeActions, setGroupControlPanelShouldShow, setNodeControlPanelShouldShow, setNodeControlPanelVisible, setAbstractionControlPanelVisible, setAbstractionControlPanelShouldShow, setConnectionControlPanelVisible, setConnectionControlPanelShouldShow } = ctxRef.current;
+      const { wasDraggingRef, gestureBlockRef, mouseMoved, isDoublePress, setEditingGroupId, setTempGroupName, setSelectedGroup, setSelectedInstanceIds, storeActions, setGroupControlPanelShouldShow, setNodeControlPanelShouldShow, setNodeControlPanelVisible, setAbstractionControlPanelVisible, setAbstractionControlPanelShouldShow, setConnectionControlPanelVisible, setConnectionControlPanelShouldShow } = ctxRef.current;
       e.stopPropagation();
       if (wasDraggingRef.current || mouseMoved.current) return;
+      // The click that ends a pan begun on this title (handleMouseMove).
+      if (gestureBlockRef.current && isReadOnlyUniverseOpen()) return;
       // Same gate as a Thing's double-click, and it matters
       // more here: a node-group's title IS the Thing (drawn
       // without its pill), so clicking along a chain of them
@@ -104,13 +108,15 @@ function createHandlers(ctxRef) {
       const { editingGroupId, isMouseDown, mouseDownPosition, mouseMoved, mouseInsideNode, startedOnNode, setLongPressingInstanceId, groupLongPressTimeout, drawingConnectionFrom, startGroupDragAtPointRef, nodeLiftDelay } = ctxRef.current;
       e.stopPropagation();
       if (editingGroupId === group.id) return;
-      if (isNodeGroup && group.anchorInstanceId) {
+      const isThing = isNodeGroup && group.anchorInstanceId;
+      // Read only, any title's press is tracked, so that moving it can pan (handleMouseMove).
+      if (isThing || isReadOnlyUniverseOpen()) {
         isMouseDown.current = true;
         mouseDownPosition.current = { x: e.clientX, y: e.clientY };
         mouseMoved.current = false;
         mouseInsideNode.current = true;
         startedOnNode.current = true;
-        setLongPressingInstanceId(group.anchorInstanceId);
+        if (isThing) setLongPressingInstanceId(group.anchorInstanceId);
       }
       clearTimeout(groupLongPressTimeout.current);
       const downX = e.clientX; const downY = e.clientY;
@@ -170,7 +176,8 @@ function createHandlers(ctxRef) {
       // sticky-true, which would suppress the synthetic click's
       // selection bailout (`if (mouseMoved.current) return;`).
       mouseMoved.current = false;
-      if (isNodeGroup && group.anchorInstanceId) {
+      // Read only, the finger isn't pressing anything until it moves (moveListener).
+      if (isNodeGroup && group.anchorInstanceId && !isReadOnlyUniverseOpen()) {
         isMouseDown.current = true;
         mouseDownPosition.current = { x: downX, y: downY };
         mouseInsideNode.current = true;
@@ -199,6 +206,12 @@ function createHandlers(ctxRef) {
           if (Math.hypot(dx, dy) > TOUCH_MOVEMENT_THRESHOLD) {
             clearTimeout(groupLongPressTimeout.current);
             if (isNodeGroup && group.anchorInstanceId) setLongPressingInstanceId(null);
+            if (isReadOnlyUniverseOpen()) {
+              // Nothing to drag, so it's a pan. Dropping the origin keeps the release from reading as a tap.
+              groupTouchStartRef.current = null;
+              cleanup();
+              touch.panCanvasFromTouch(ev);
+            }
           }
           return;
         }

@@ -5,6 +5,7 @@ import { haptic } from '../services/haptics.js';
 import { perfNote } from '../utils/perfSession.js';
 import useCanvasUIStore from '../store/canvasUIStore.js';
 import useGraphStore from '../store/graphStore.js';
+import { isReadOnlyUniverseOpen } from '../store/readOnlyUniverse.js';
 import { DEFAULT_TOUCH_SETTINGS } from '../components/canvas/canvasDefaults.js';
 import { isJustAfterNodeDrop } from '../components/canvas/input/dropCooldown.js';
 import { withSelectedFormula } from '../components/canvas/formats/formula/formulaSelection.js';
@@ -433,7 +434,7 @@ export const useCanvasTouch = ({
         // single-finger touch lands on a visible orb, toggle the arrow and swallow
         // the gesture (no pan / no deselect). Skipped while catching a glide —
         // that finger is stopping the view, not aiming at the orb it landed on.
-        if (!panCatchRef.current && e.touches && e.touches.length === 1 && tryToggleConnectionOrbAtPoint) {
+        if (!claimed && !panCatchRef.current && e.touches && e.touches.length === 1 && tryToggleConnectionOrbAtPoint) {
             const t = e.touches[0];
             if (tryToggleConnectionOrbAtPoint(t.clientX, t.clientY)) {
                 orbTapConsumedRef.current = true;
@@ -570,6 +571,24 @@ export const useCanvasTouch = ({
             };
             handleMouseDown(synthetic);
         }
+    };
+
+    /**
+     * Hand a finger already moving on a node or group title to the canvas as a
+     * pan, for a read-only universe, where there is nothing else to do with it.
+     * panCatchRef is what keeps the node's own handlers out for the rest of the
+     * gesture, and keeps its release from reading as a tap.
+     *
+     * Passed on as not cancelable: this is a move, or a passive listener's, not
+     * the touchstart handleTouchStartCanvas otherwise claims with preventDefault.
+     */
+    const panCanvasFromTouch = (e) => {
+        releaseNodeTouchState();
+        handleTouchStartCanvas(
+            { touches: e.touches, timeStamp: e.timeStamp, target: e.target, cancelable: false },
+            { claimed: true }
+        );
+        panCatchRef.current = true;
     };
 
     const handleTouchMoveCanvas = (e) => {
@@ -1044,7 +1063,7 @@ export const useCanvasTouch = ({
                 if (selectedInstanceIds.size > 0) {
                     // Mimic click-off behavior: clear selection on tap
                     setSelectedInstanceIds(new Set());
-                } else if (!plusSign && !dismissedControlPanel) {
+                } else if (!plusSign && !dismissedControlPanel && !isReadOnlyUniverseOpen()) {
                     const rect = containerRef.current.getBoundingClientRect();
                     const mouseX = (clientX - rect.left - panOffsetRef.current.x) / zoomLevelRef.current + canvasSize.offsetX;
                     const mouseY = (clientY - rect.top - panOffsetRef.current.y) / zoomLevelRef.current + canvasSize.offsetY;
@@ -1329,6 +1348,12 @@ export const useCanvasTouch = ({
             if (touchState.current.longPressTimer) {
                 clearTimeout(touchState.current.longPressTimer);
                 touchState.current.longPressTimer = null;
+            }
+
+            // Read only, neither a draw nor a drag can start: the finger pans.
+            if (isReadOnlyUniverseOpen()) {
+                panCanvasFromTouch(e);
+                return;
             }
 
             // Match mouse behavior: if longPressingInstanceId is set -> Connection Draw, else -> Node Drag
@@ -1722,6 +1747,7 @@ export const useCanvasTouch = ({
         handleTouchStartCanvas,
         handleTouchMoveCanvas,
         handleTouchEndCanvas,
+        panCanvasFromTouch,
         handleNodeTouchStart,
         handleNodeTouchMove,
         handleNodeTouchEnd,

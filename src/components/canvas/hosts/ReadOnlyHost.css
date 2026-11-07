@@ -1,5 +1,5 @@
-/* The read-only pill: DownloadAppPill's pill and pop/shrink, with room for its
-   buttons. Its bottom edge eases as the control panel under it comes and goes. */
+/* The read-only pill: DownloadAppPill's pop/shrink, as two rows: what this is and
+   its X, then the buttons. Its bottom edge eases as the control panel under it comes and goes. */
 
 .read-only-pill-wrapper {
   position: fixed;
@@ -37,13 +37,12 @@
 
 .read-only-pill {
   display: flex;
-  align-items: center;
-  justify-content: center;
+  flex-direction: column;
   gap: 8px;
-  padding: 6px 8px 6px 14px;
+  padding: 8px 10px 10px;
   background-color: #DEDADA;
   border: 2px solid maroon;
-  border-radius: 999px;
+  border-radius: 24px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
   color: maroon;
   font-family: 'EmOne', sans-serif;
@@ -52,16 +51,40 @@
   user-select: none;
 }
 
+.read-only-pill-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
 .read-only-pill-status {
   display: flex;
   align-items: center;
   gap: 6px;
+  padding-left: 4px;
   white-space: nowrap;
+}
+
+/* The X's own padding comes out of the row, so its glyph lines up with the
+   button under it and doesn't push the row taller. */
+.read-only-pill-hide {
+  display: flex;
+  margin: -4px -2px -4px 0;
+}
+
+/* One button or two, the row is filled, and two are the same width. */
+.read-only-pill-actions {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 8px;
 }
 
 .read-only-pill-button {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   padding: 4px 10px;
   border: 2px solid maroon;
@@ -91,32 +114,4 @@
 .read-only-pill-button:disabled {
   opacity: 0.6;
   cursor: default;
-}
-
-/* One line on a phone: the words stay their size, the icons and spacing give way. */
-@media (max-width: 430px) {
-  .read-only-pill {
-    gap: 6px;
-    padding: 6px 6px 6px 12px;
-  }
-
-  .read-only-pill-status svg,
-  .read-only-pill-button svg {
-    display: none;
-  }
-
-  .read-only-pill-button {
-    padding: 4px 8px;
-  }
-}
-
-/* Too narrow even for that: the eye says it instead of the words. */
-@media (max-width: 351px) {
-  .read-only-pill-status svg {
-    display: block;
-  }
-
-  .read-only-pill-label {
-    display: none;
-  }
 }

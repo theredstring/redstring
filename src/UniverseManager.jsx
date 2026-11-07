@@ -457,10 +457,10 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
     window.addEventListener('redstring:auth-expired', handleAuthExpired);
 
     // Handle universe creation events from onboarding flow
-    const handleUniverseCreated = async () => {
+    const handleUniverseCreated = async (event) => {
       try {
         umLog('Universe created event received, refreshing state...');
-        await refreshState();
+        await refreshState({ silent: !!event?.detail?.silent });
       } catch (err) {
         umWarn('Universe created handler refresh failed:', err);
       }

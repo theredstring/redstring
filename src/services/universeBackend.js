@@ -7201,7 +7201,7 @@ class UniverseBackend {
       this.saveToStorage();
 
       // Ensure the graph store is properly initialized with empty state
-      if (this.storeOperations?.loadUniverseFromFile) {
+      if (this.storeOperations?.loadUniverseFromFile && !options.loadsOwnState) {
         const emptyState = this.createEmptyState();
         emptyState._universeSlug = slug;
         this.storeOperations.loadUniverseFromFile(emptyState);
@@ -8728,10 +8728,14 @@ class UniverseBackend {
 
     // Saved from the first moment, with no file or repo to choose first. On iOS
     // and Android that's the managed file; elsewhere the browser-backed shell
-    // onboarding starts from. Either way its slots are there to fill.
-    const created = await this.createUniverse(fromLink ? source.name : `Copy of ${source.name}`, isCapacitor()
-      ? { enableGit: false, enableLocal: true }
-      : { enableGit: false, enableLocal: false, sourceOfTruth: SOURCE_OF_TRUTH.BROWSER });
+    // onboarding starts from. Either way its slots are there to fill. The store
+    // goes from what's open straight to the copy, with no blank canvas between.
+    const created = await this.createUniverse(fromLink ? source.name : `Copy of ${source.name}`, {
+      loadsOwnState: true,
+      ...(isCapacitor()
+        ? { enableGit: false, enableLocal: true }
+        : { enableGit: false, enableLocal: false, sourceOfTruth: SOURCE_OF_TRUTH.BROWSER })
+    });
     // A page booted on a link never started autosave: there was nothing to save.
     await this.ensureSaveCoordinator();
     this.storeOperations.loadUniverseFromFile({ ...storeState, _universeSlug: created.slug });

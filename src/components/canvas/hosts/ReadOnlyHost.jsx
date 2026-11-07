@@ -6,6 +6,7 @@ import { DialogButton } from '../../shared/Dialog.jsx';
 import PanelIconButton from '../../shared/PanelIconButton.jsx';
 import { ZOOM_BAR_HEIGHT } from '../layers/ZoomBar.jsx';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
+import useCopyHandoff from '../../../store/copyHandoff.js';
 import useGraphStore from '../../../store/graphStore.js';
 import useReadOnlyUniverse, { setReadOnlyFailure } from '../../../store/readOnlyUniverse.js';
 import { useBottomPanelTop } from '../../../store/bottomPanelTop.js';
@@ -20,8 +21,10 @@ import { makeCopyOfOpenUniverse } from '../actions/makeCopy.js';
 const BOTTOM_GAP = 20;
 const PANEL_GAP = 12;
 // At or under this window width the centered pill reaches across the TypeList's
-// round toggle, which stays in the corner when the TypeList is closed.
-const PILL_MEETS_TOGGLE_WIDTH = 540;
+// round toggle, which stays in the corner when the TypeList is closed, so it goes
+// over the toggle: its margin, height and ring, and a gap.
+const PILL_MEETS_TOGGLE_WIDTH = 430;
+const OVER_TOGGLE = 10 + HEADER_HEIGHT + 3 + PANEL_GAP;
 
 /**
  * The read-only universe's pill: that it's read only, and the way to make it
@@ -33,7 +36,7 @@ const ReadOnlyHost = () => {
   const theme = useTheme();
   const active = useReadOnlyUniverse((s) => s.active);
   const failure = useReadOnlyUniverse((s) => s.failure);
-  const [copying, setCopying] = useState(false);
+  const copying = useCopyHandoff((s) => s.phase !== null);
   const [hidden, setHidden] = useState(false);
   const [animationState, setAnimationState] = useState(null);
   const wrapperRef = useRef(null);
@@ -59,7 +62,8 @@ const ReadOnlyHost = () => {
     if (!isExclusivePanelMode()) useGraphStore.getState().setLeftPanelExpanded(true);
   }, [visiting]);
 
-  const pillUp = !!active && !hidden;
+  // A copy hands over to its row in Universes; if it fails, the pill comes back.
+  const pillUp = !!active && !hidden && !copying;
   useEffect(() => {
     if (pillUp) {
       setAnimationState((state) => (state === 'visible_steady' ? state : 'popping'));
@@ -67,15 +71,6 @@ const ReadOnlyHost = () => {
       setAnimationState((state) => (state ? 'shrinking' : state));
     }
   }, [pillUp]);
-
-  const makeCopy = useCallback(async () => {
-    setCopying(true);
-    try {
-      await makeCopyOfOpenUniverse();
-    } finally {
-      setCopying(false);
-    }
-  }, []);
 
   const dismissFailure = useCallback(() => {
     const atBoot = failure?.atBoot;
@@ -91,14 +86,11 @@ const ReadOnlyHost = () => {
 
   // The middle of the window, as the other pills are: on top of a control panel
   // when one is up, otherwise just over the TypeList (and the zoom bar when it
-  // shares the strip). On a phone it keeps that height with the TypeList closed
-  // too, to stay over the toggle.
-  const stripBelow = viewportBounds.windowWidth <= PILL_MEETS_TOGGLE_WIDTH
-    ? HEADER_HEIGHT
-    : viewportBounds.bottomReserved;
+  // shares the strip). On a phone, over the toggle as well.
+  const overStrip = viewportBounds.bottomReserved + BOTTOM_GAP + (zoomBarBelow ? ZOOM_BAR_HEIGHT + 8 : 0);
   const bottom = bottomPanelTop !== null
     ? bottomPanelTop + PANEL_GAP
-    : stripBelow + BOTTOM_GAP + (zoomBarBelow ? ZOOM_BAR_HEIGHT + 8 : 0);
+    : viewportBounds.windowWidth <= PILL_MEETS_TOGGLE_WIDTH ? Math.max(overStrip, OVER_TOGGLE) : overStrip;
 
   let wrapperClass = 'read-only-pill-wrapper';
   if (animationState === 'popping') wrapperClass += ' is-popping';
@@ -121,33 +113,37 @@ const ReadOnlyHost = () => {
           }}
         >
           <div data-testid="read-only-bar" className="read-only-pill">
-            <span className="read-only-pill-status">
-              <Eye size={16} strokeWidth={2.5} style={{ flexShrink: 0 }} />
-              <span className="read-only-pill-label">Read Only</span>
-            </span>
-            <button
-              type="button"
-              data-testid="read-only-make-copy"
-              className="read-only-pill-button is-primary"
-              disabled={copying}
-              onClick={makeCopy}
-            >
-              <Copy size={13} strokeWidth={2.5} />
-              Make a Copy
-            </button>
-            {!isInstalledApp() && (
-              <a
-                data-testid="read-only-open-in-app"
-                className="read-only-pill-button"
-                href={buildAppLink(showing.sourceUrl) || undefined}
+            <div className="read-only-pill-top">
+              <span className="read-only-pill-status">
+                <Eye size={16} strokeWidth={2.5} style={{ flexShrink: 0 }} />
+                Viewer
+              </span>
+              <span data-testid="read-only-hide" className="read-only-pill-hide">
+                <PanelIconButton icon={X} size={14} color="maroon" strokeWidth={2.5} onClick={() => setHidden(true)} title="Hide" />
+              </span>
+            </div>
+            <div className="read-only-pill-actions">
+              <button
+                type="button"
+                data-testid="read-only-make-copy"
+                className="read-only-pill-button is-primary"
+                disabled={copying}
+                onClick={makeCopyOfOpenUniverse}
               >
-                <ExternalLink size={13} strokeWidth={2.5} />
-                Open in App
-              </a>
-            )}
-            <span data-testid="read-only-hide">
-              <PanelIconButton icon={X} size={14} color="maroon" strokeWidth={2.5} onClick={() => setHidden(true)} title="Hide" />
-            </span>
+                <Copy size={13} strokeWidth={2.5} />
+                Make a Copy
+              </button>
+              {!isInstalledApp() && (
+                <a
+                  data-testid="read-only-open-in-app"
+                  className="read-only-pill-button"
+                  href={buildAppLink(showing.sourceUrl) || undefined}
+                >
+                  <ExternalLink size={13} strokeWidth={2.5} />
+                  Open in App
+                </a>
+              )}
+            </div>
           </div>
         </div>
       )}

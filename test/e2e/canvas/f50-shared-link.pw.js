@@ -1,7 +1,7 @@
 // F50: a shared link opens a hosted universe read-only, and a copy makes it yours.
 // These boot the real app, not a fixture sandbox: the boot path is what's tested.
 import fs from 'node:fs';
-import { test, expect, openPieMenu, waitForCanvasReady } from './helpers.js';
+import { test, expect, openPieMenu, waitForCanvasReady, waitForCameraSettled } from './helpers.js';
 
 const SOURCE = 'https://files.example.test/atlas.redstring';
 const LINK = `/open?url=${encodeURIComponent(SOURCE)}`;
@@ -23,6 +23,14 @@ async function hostFile(page, { status = 200, refused = false } = {}) {
 // The pill pops in. Playwright scrolls what it clicks into view first, and doing
 // that mid-animation can scroll the page; a person's click doesn't.
 const pillSettled = (page) => page.locator('.read-only-pill-wrapper.is-visible-steady').waitFor({ timeout: 30_000 });
+
+// The pill hands over on the click; the copy is done when its row opens up.
+const makeCopy = async (page) => {
+  await page.getByTestId('read-only-make-copy').click();
+  await expect(page.getByTestId('read-only-bar')).toBeHidden();
+  await expect(page.getByTestId('copy-handoff')).toBeHidden();
+  await expect(page.getByTestId('share-universe')).toBeVisible();
+};
 
 const store = (page) => page.evaluate(async () => {
   const { default: useGraphStore } = await import('/src/store/graphStore.js');
@@ -52,7 +60,7 @@ test('F50 a link opens read-only: no onboarding, edits refused, nothing remember
   await page.goto(LINK);
   await expect(page.getByTestId('read-only-bar')).toBeVisible({ timeout: 30_000 });
   await waitForCanvasReady(page);
-  await expect(page.getByTestId('read-only-bar').getByText('Read Only', { exact: true })).toBeVisible();
+  await expect(page.getByTestId('read-only-bar').getByText('Viewer', { exact: true })).toBeVisible();
   await expect(page.getByTestId('read-only-open-in-app')).toHaveAttribute('href', /^redstring:\/\/open\?url=/);
 
   const before = await store(page);
@@ -60,7 +68,7 @@ test('F50 a link opens read-only: no onboarding, edits refused, nothing remember
 
   // Background work (no one did anything) gets no answer.
   await page.waitForTimeout(2_000);
-  await expect(page.getByTestId('read-only-bar').getByText('Read Only', { exact: true })).toBeVisible();
+  await expect(page.getByTestId('read-only-bar').getByText('Viewer', { exact: true })).toBeVisible();
 
   await renameAlpha(page, 'Vandalised');
   expect((await store(page)).names).toContain('Alpha');
@@ -100,8 +108,7 @@ test('F50 Make a Copy makes it yours: editable, saved, and there after a reload'
 
   await pillSettled(page);
 
-  await page.getByTestId('read-only-make-copy').click();
-  await expect(page.getByTestId('read-only-bar')).toBeHidden();
+  await makeCopy(page);
   expect(new URL(page.url()).pathname).toBe('/');
   expect(new URL(page.url()).search).toBe('');
   expect((await store(page)).things).toBe(viewed.things);
@@ -121,13 +128,41 @@ test('F50 Make a Copy makes it yours: editable, saved, and there after a reload'
   expect((await store(page)).names).toContain('Mine Now');
 });
 
+test('F50 Make a Copy hands over to its row: says so at once, a second click does nothing, nothing blank', async ({ page }) => {
+  await hostFile(page);
+  await page.goto(LINK);
+  await expect(page.getByTestId('read-only-bar')).toBeVisible({ timeout: 30_000 });
+  await waitForCanvasReady(page);
+  await pillSettled(page);
+  await page.evaluate(() => {
+    window.__sawBlank = false;
+    new MutationObserver(() => {
+      if (!document.querySelector('svg.canvas g.node')) window.__sawBlank = true;
+    }).observe(document.body, { subtree: true, childList: true });
+  });
+
+  await page.getByTestId('read-only-make-copy').click();
+  await expect(page.getByTestId('copy-handoff')).toContainText('Making a copy');
+  await expect(page.getByTestId('read-only-bar')).toBeHidden();
+  // The panel's own button, while it's underway: the one copy stays the one copy.
+  await page.evaluate(() => [...document.querySelectorAll('button')]
+    .find((button) => button.textContent.trim() === 'Make a Copy')?.click());
+
+  // The row opens up well inside the panel's 5s poll.
+  await expect(page.getByTestId('share-universe')).toBeVisible({ timeout: 3_000 });
+  await expect(page.getByTestId('copy-handoff')).toBeHidden();
+  expect(await page.evaluate(() => window.__sawBlank)).toBe(false);
+  await expect.poll(() => registry(page), { timeout: 10_000 }).toEqual(['atlas']);
+  await page.waitForTimeout(1_000);
+  expect(await registry(page)).toEqual(['atlas']);
+});
+
 test('F50 a link opened while you work: yours is saved, the visit is never remembered, closing returns', async ({ page }) => {
   await hostFile(page);
   await page.goto(LINK);
   await expect(page.getByTestId('read-only-bar')).toBeVisible({ timeout: 30_000 });
   await pillSettled(page);
-  await page.getByTestId('read-only-make-copy').click();
-  await expect(page.getByTestId('read-only-bar')).toBeHidden();
+  await makeCopy(page);
   await renameAlpha(page, 'Mine Now');
 
   // As the desktop app receives a link while running: no page load.
@@ -170,15 +205,14 @@ test('F50 a Dropbox link, as Copy link gives it, opens from a shared link and th
   });
 
   await page.goto(`/open?url=${encodeURIComponent(COPIED)}`);
-  await expect(page.getByTestId('read-only-bar')).toContainText('Read Only', { timeout: 30_000 });
+  await expect(page.getByTestId('read-only-bar')).toContainText('Viewer', { timeout: 30_000 });
   await waitForCanvasReady(page);
   expect(requested.filter((url) => url.includes('dropbox.com/'))).toEqual([]);
 
   // Pasted into the link box, from the File menu, with the Universes panel closed:
   // the one click has to open the box as well as the panel.
   await pillSettled(page);
-  await page.getByTestId('read-only-make-copy').click();
-  await expect(page.getByTestId('read-only-bar')).toBeHidden();
+  await makeCopy(page);
   await page.reload();
   await waitForCanvasReady(page);
   await expect(page.getByText('Manage your knowledge spaces')).not.toBeInViewport();
@@ -189,7 +223,7 @@ test('F50 a Dropbox link, as Copy link gives it, opens from a shared link and th
   await expect(page.getByText('Direct file URL detected')).toBeVisible();
   await page.getByRole('button', { name: 'Fetch & preview' }).click();
   await page.getByText("Just view (read only)").click();
-  await expect(page.getByTestId('read-only-bar')).toContainText('Read Only', { timeout: 15_000 });
+  await expect(page.getByTestId('read-only-bar')).toContainText('Viewer', { timeout: 15_000 });
   expect(requested.filter((url) => url.includes('dropbox.com/'))).toEqual([]);
 });
 
@@ -214,8 +248,7 @@ test('F50 your own universe is untouched by a visit, and closing goes back to it
   await page.goto(LINK);
   await expect(page.getByTestId('read-only-bar')).toBeVisible({ timeout: 30_000 });
   await pillSettled(page);
-  await page.getByTestId('read-only-make-copy').click();
-  await expect(page.getByTestId('read-only-bar')).toBeHidden();
+  await makeCopy(page);
   await renameAlpha(page, 'Mine Now');
   await page.waitForTimeout(6_000);
 
@@ -238,8 +271,7 @@ test('F50 while a link loads, the screen names that universe, not yours', async 
   await page.goto(LINK);
   await expect(page.getByTestId('read-only-bar')).toBeVisible({ timeout: 30_000 });
   await pillSettled(page);
-  await page.getByTestId('read-only-make-copy').click();
-  await expect(page.getByTestId('read-only-bar')).toBeHidden();
+  await makeCopy(page);
   await page.waitForTimeout(6_000);
 
   // Another link, held on the way so the loading screen stays up.
@@ -668,6 +700,7 @@ test('F50 a link arriving in the app on a fresh install goes ahead of setting up
 });
 
 test('F50 a narrow panel keeps Universes inside its cards', async ({ page }) => {
+  test.setTimeout(75_000); // It walks every panel width.
   // What sticks out of the box around this text, and that box's width.
   const spill = (text) => page.getByText(text, { exact: true }).first().evaluate((el) => {
     let box = el;
@@ -721,8 +754,7 @@ test('F50 a narrow panel keeps Universes inside its cards', async ({ page }) => 
 
   // A universe of your own at that width: its Share section and storage too.
   await pillSettled(page);
-  await page.getByTestId('read-only-make-copy').click();
-  await expect(page.getByTestId('read-only-bar')).toBeHidden();
+  await makeCopy(page);
   await expect(page.getByTestId('share-universe')).toBeVisible();
   expect(await spill('ACTIVE'), 'your own card at 180').toEqual([]);
   await page.screenshot({ path: test.info().outputPath('universes-own-180.png') });
@@ -734,8 +766,7 @@ test('F50 links racing: the newest opens, and closing returns to yours', async (
   await page.goto(LINK);
   await expect(page.getByTestId('read-only-bar')).toBeVisible({ timeout: 30_000 });
   await pillSettled(page);
-  await page.getByTestId('read-only-make-copy').click();
-  await expect(page.getByTestId('read-only-bar')).toBeHidden();
+  await makeCopy(page);
   await renameAlpha(page, 'Mine Now');
   await page.waitForTimeout(6_000);
   await page.reload();
@@ -803,15 +834,6 @@ test('F50 what can\'t be done isn\'t offered, and the pill stays quiet about it'
   }
   await expect(page.getByPlaceholder(/search/i)).toHaveCount(0);
 
-  // A quick drag off a Thing is as if it can't be done: no line, nothing said.
-  const box = await page.locator('svg.canvas g.node').nth(2).boundingBox();
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(box.x + box.width + 120, box.y + box.height + 120, { steps: 4 });
-  await page.mouse.up();
-  await page.waitForTimeout(300);
-  expect(await nudges()).toBe(before);
-
   // A Thing with no definition has nothing to open, and none to make.
   const proto = await page.evaluate(async () => {
     const { default: useGraphStore } = await import('/src/store/graphStore.js');
@@ -832,8 +854,17 @@ test('F50 what can\'t be done isn\'t offered, and the pill stays quiet about it'
   await page.locator('svg.canvas g.node').nth(2).click();
   await page.keyboard.press('Delete');
   await expect.poll(nudges).toBe(before + 1);
-  await expect(page.getByTestId('read-only-bar')).toContainText('Read Only');
+  await expect(page.getByTestId('read-only-bar')).toContainText('Viewer');
   await expect(page.getByTestId('read-only-bar')).not.toContainText('Make a copy to edit');
+
+  // A quick drag off a Thing pans, as if a line can't be drawn: nothing said.
+  const box = await page.locator('svg.canvas g.node').nth(2).boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width + 120, box.y + box.height + 120, { steps: 4 });
+  await page.mouse.up();
+  await waitForCameraSettled(page);
+  expect(await nudges()).toBe(before + 1);
 });
 
 test('F50 the Wizard is offered only what looks', async ({ page }) => {

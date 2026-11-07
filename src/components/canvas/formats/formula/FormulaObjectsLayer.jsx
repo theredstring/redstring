@@ -612,7 +612,7 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null, into
   };
   const onTouchEnd = (e) => {
     const input = getCanvasGroupInput();
-    if (!input || input.isDragging()) return; // the drag's own end takes it
+    if (!input || input.isDragging() || input.isPanning()) return; // the drag or pan's own end takes it
     const entry = groupEntryOf(obj);
     if (entry) input.claimTouchTap(entry);
     e.stopPropagation();

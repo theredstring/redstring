@@ -303,7 +303,7 @@ export function createPointerHandlers(ctxRef) {
    * @param {MouseEvent|PointerEvent} e - The mouse-move event, or a synthetic one.
    */
   async function handleMouseMove(e) {
-    const { mousePositionRef, activeGraphId, middleMouseZoomRef, draggingNodeInfo, isAnimatingZoomRef, containerRef, zoomOpIdRef, canvasWorker, zoomLevelRef, panOffsetRef, viewportSize, canvasSize, MIN_ZOOM, setPanAndZoom, isMouseDown, isPanning, pinchRef, clearLabelsOnMouseMove, lastMousePosRef, clampCoordinates, nodes, visibleNodeIds, semanticOrbitActiveRef, inputModeRef, clearHoverImmediate, isInsideNode, baseDimsById, commitHoverTarget, findNearestEdgeAtCanvasPoint, getEdgeHitThreshold, hoverStickyEdgeId, selectionStartRef, mouseDownPosition, mouseMoved, updateMarquee, clickTimeoutIdRef, potentialClickNodeRef, longPressingInstanceIdRef, draggingNodeInfoRef, drawingConnectionFrom, isPanningRef, startedOnNode, panStartRef, isPanningOrZooming, setIsPanning, lastPanVelocityRef, lastPanSampleRef, setPanStart, panSourceRef, isTouchDeviceRef, panVelocityHistoryRef, nodeDrag, setDrawingConnectionEnd, connectionStretchTrack, findConnectionDropTarget, connectionExitedSourceRef, connectionHoverTargetRef, abstractionCarouselVisible, touchSettingsRef, setPanOffset } = ctxRef.current;
+    const { mousePositionRef, activeGraphId, middleMouseZoomRef, draggingNodeInfo, isAnimatingZoomRef, containerRef, zoomOpIdRef, canvasWorker, zoomLevelRef, panOffsetRef, viewportSize, canvasSize, MIN_ZOOM, setPanAndZoom, isMouseDown, isPanning, pinchRef, clearLabelsOnMouseMove, lastMousePosRef, clampCoordinates, nodes, visibleNodeIds, semanticOrbitActiveRef, inputModeRef, clearHoverImmediate, isInsideNode, baseDimsById, commitHoverTarget, findNearestEdgeAtCanvasPoint, getEdgeHitThreshold, hoverStickyEdgeId, selectionStartRef, mouseDownPosition, mouseMoved, updateMarquee, clickTimeoutIdRef, potentialClickNodeRef, longPressingInstanceIdRef, draggingNodeInfoRef, drawingConnectionFrom, isPanningRef, startedOnNode, panStartRef, isPanningOrZooming, setIsPanning, lastPanVelocityRef, lastPanSampleRef, setPanStart, panSourceRef, isTouchDeviceRef, panVelocityHistoryRef, nodeDrag, setDrawingConnectionEnd, connectionStretchTrack, findConnectionDropTarget, connectionExitedSourceRef, connectionHoverTargetRef, abstractionCarouselVisible, touchSettingsRef, setPanOffset, longPressTimeout, groupLongPressTimeout, setLongPressingInstanceId, mouseInsideNode } = ctxRef.current;
     // Update mouse position for edge panning
     mousePositionRef.current = { x: e.clientX, y: e.clientY };
 
@@ -476,12 +476,7 @@ export function createPointerHandlers(ctxRef) {
         // in the useNodeDrag hook), so a quick-drag mousemove firing in the same tick would
         // otherwise see null and fail to start a connection — notably from thing-group titles.
         const armedInstanceId = longPressingInstanceIdRef.current;
-        if (armedInstanceId && !draggingNodeInfo && !draggingNodeInfoRef.current && !pinchRef.current.active) {
-          beginConnectionDrawFromNode(armedInstanceId, e.clientX, e.clientY);
-        } else if (!draggingNodeInfo && !drawingConnectionFrom && !isPanningRef.current && !startedOnNode.current && !pinchRef.current.active && !panStartRef.current) {
-          // Start panning after threshold exceeded. Use refs (not state) so we read the
-          // synchronously-current values — important post-pinch where React may not have
-          // committed setIsPanning(true) yet.
+        const startPan = () => {
           isPanningOrZooming.current = true;
           setIsPanning(true);
           lastPanVelocityRef.current = { vx: 0, vy: 0 };
@@ -489,6 +484,23 @@ export function createPointerHandlers(ctxRef) {
           setPanStart({ x: e.clientX, y: e.clientY });
           panSourceRef.current = isTouchDeviceRef.current ? 'touch' : 'mouse';
           panVelocityHistoryRef.current = [{ x: e.clientX, y: e.clientY, time: eventTime(e) }];
+        };
+        if (startedOnNode.current && isReadOnlyUniverseOpen() && !draggingNodeInfoRef.current && !pinchRef.current.active) {
+          // Nothing can be drawn or moved here, so a press that travels off a Thing
+          // or a group title is a pan, the same as one off bare canvas.
+          clearTimeout(longPressTimeout.current);
+          clearTimeout(groupLongPressTimeout.current);
+          setLongPressingInstanceId(null);
+          startedOnNode.current = false;
+          mouseInsideNode.current = false;
+          startPan();
+        } else if (armedInstanceId && !draggingNodeInfo && !draggingNodeInfoRef.current && !pinchRef.current.active) {
+          beginConnectionDrawFromNode(armedInstanceId, e.clientX, e.clientY);
+        } else if (!draggingNodeInfo && !drawingConnectionFrom && !isPanningRef.current && !startedOnNode.current && !pinchRef.current.active && !panStartRef.current) {
+          // Start panning after threshold exceeded. Use refs (not state) so we read the
+          // synchronously-current values — important post-pinch where React may not have
+          // committed setIsPanning(true) yet.
+          startPan();
         }
       }
     }

@@ -3468,7 +3468,7 @@ function NodeCanvas() {
     groupControlPanelShouldShow, groupControlPanelVisible, setGroupControlPanelVisible, abstractionCarouselVisible,
     selectedNodeIdForPieMenu, setAbstractionCarouselVisible, setAbstractionCarouselNode, setCarouselAnimationState,
     setCarouselPieMenuStage, setCarouselFocusedNode, setCarouselFocusedNodeDimensions, carouselAnimationState,
-    selectedInstanceIds, justCompletedCarouselExit, carouselExitInProgressRef, selectedEdgeId, selectedEdgeIds,
+    selectedInstanceIds, justCompletedCarouselExit, carouselExitInProgressRef, selectedEdgeId, selectedEdgeIds, gestureBlockRef, isPanningRef,
   });
   const groupInputHandlers = useMemo(() => createGroupInputHandlers(groupInputCtxRef), [groupInputCtxRef]);
   const groupElements = useMemo(() => buildGroupElements({
