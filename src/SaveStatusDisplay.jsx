@@ -31,7 +31,7 @@ const READ_ONLY_NOTICE_MS = 1200;
 const SaveStatusDisplay = ({ hidden = false }) => {
   // `null` means "nothing worth saying" (mid-drag, before anything is written).
   const [statusText, setStatusText] = useState('Loading...');
-  // Why a save didn't happen, shown on hover over "Not saved".
+  // Why a save didn't happen, shown on hover over "Not Saved".
   const [statusDetail, setStatusDetail] = useState(null);
   const [isCTA, setIsCTA] = useState(false);
   // What the CTA does: 'reconnect' opens GitReconnectModal (a Git universe
@@ -55,7 +55,7 @@ const SaveStatusDisplay = ({ hidden = false }) => {
     };
   }, []);
   // The notice gives way to anything the person has to act on.
-  const showNotice = remoteNotice && !isCTA && statusText !== 'Not saved';
+  const showNotice = remoteNotice && !isCTA && statusText !== 'Not Saved';
 
   // A read-only universe has nothing to save, so all this says there is the
   // answer to an edit, when there is one.

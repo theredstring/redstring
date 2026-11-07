@@ -24,5 +24,5 @@ test('F24 loading, then a failed load: the error card and "Go to Universes"', as
 
 test('F24b the save status pill is on screen', async ({ page }) => {
   await openFixture(page, 'small');
-  await expect(page.getByText(/^(Saved|Saving|Not saved|Unsaved)/).first()).toBeVisible();
+  await expect(page.getByText(/^(Saved|Saving|Not Saved|Unsaved)/).first()).toBeVisible();
 });

@@ -48,18 +48,18 @@ describe('resolveSaveStatus', () => {
     expect(resolveSaveStatus({ ...settled, hasUnsavedChanges: true, isInteracting: true }).text).toBeNull();
   });
 
-  it('says Not saved at once when a write is refused, with the reason and a way to act', () => {
+  it('says Not Saved at once when a write is refused, with the reason and a way to act', () => {
     const status = resolveSaveStatus({
       ...settled, hasUnsavedChanges: true, blockedReason: 'Much less is here than was last saved'
     });
     expect(status).toEqual({
-      text: 'Not saved', isCTA: true, action: 'universes', detail: 'Much less is here than was last saved'
+      text: 'Not Saved', isCTA: true, action: 'universes', detail: 'Much less is here than was last saved'
     });
   });
 
-  it('says Not saved when changes stall with no reason reported', () => {
+  it('says Not Saved when changes stall with no reason reported', () => {
     const status = resolveSaveStatus({ ...settled, hasUnsavedChanges: true, dirtyStalled: true });
-    expect(status.text).toBe('Not saved');
+    expect(status.text).toBe('Not Saved');
     expect(status.detail).toBeTruthy();
   });
 

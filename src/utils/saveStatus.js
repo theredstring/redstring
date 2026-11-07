@@ -26,7 +26,7 @@
  * coming. While the user is still dragging, nothing is shown, because nothing
  * is written until they let go.
  *
- * A refused or failed write says "Not saved" at once, as a call to action
+ * A refused or failed write says "Not Saved" at once, as a call to action
  * that opens the Universes panel (where Save Now and reconnecting live), with
  * the reason as `detail`. It used to wait ten seconds and then say "Unsaved"
  * with no reason and nothing to click.
@@ -77,7 +77,7 @@ export const resolveSaveStatus = ({
   // sat unwritten far past the debounce for a reason nobody reported.
   if (blockedReason || (dirtyStalled && !manualSave)) {
     return {
-      text: 'Not saved',
+      text: 'Not Saved',
       isCTA: true,
       action: 'universes',
       detail: blockedReason || 'These changes have not reached the file yet.'

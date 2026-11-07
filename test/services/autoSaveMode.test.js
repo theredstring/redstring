@@ -220,7 +220,7 @@ describe('the indicator with autosave off', () => {
     expect(resolveSaveStatus({ ...base, dirtyStalled: true }).text).toBe('Save');
     expect(resolveSaveStatus({ ...base, isSaving: true }).text).toBe('Saving...');
     expect(resolveSaveStatus({ ...base, isInteracting: true }).text).toBe(null);
-    expect(resolveSaveStatus({ ...base, blockedReason: 'refused' }).text).toBe('Not saved');
+    expect(resolveSaveStatus({ ...base, blockedReason: 'refused' }).text).toBe('Not Saved');
     expect(resolveSaveStatus({ ...base, hasUnsavedChanges: false }).text).toBe('Saved');
     expect(resolveSaveStatus({ ...base, manualSave: false }).text).toBe('Saving...');
   });
