@@ -4,7 +4,17 @@ All notable changes to Redstring are documented in this file. Logs should be bri
 
 Versions before 0.1.0-alpha were never released. They are numbered after the fact to mark milestones in development.
 
-## [0.15.11] (1.0.0 pre-release) - 2026-11-06
+## [0.15.12] - 2026-11-07
+
+### Changed
+- **Open in Panel closes the control panel**, so it no longer sits over the tab it opened.
+
+### Fixed
+- **A copy pushed to a repository could land on the original's file.** A copy of a shared universe keeps the original's name, so Push Local Data to New File wrote over the original's file and saving stopped on a storage conflict. A new file now always gets a name that's free.
+- **Linking a repository asked to keep Local as primary** on a universe with no local file.
+- **A pan that ended on a connection selected it.**
+
+## [0.15.11] - 2026-11-06
 
 One more pre-release build of Redstring 1.0.0, adding shared links as an 11th hour major feature.
 
@@ -28,7 +38,7 @@ One more pre-release build of Redstring 1.0.0, adding shared links as an 11th ho
 - **Items in the Redstring menu's nested submenus ignored clicks.**
 - **The Equations section missed formulas opened in place.**
 
-## [0.15.10] (1.0.0 pre-release) - 2026-10-30
+## [0.15.10] - 2026-10-30
 
 This is a pre-release build of Redstring 1.0.0.
 
