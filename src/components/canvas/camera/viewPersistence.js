@@ -13,11 +13,13 @@ import { civilizationView } from './backToCivilization.js';
 // doesn't open at the deepest zoom.
 const OPEN_FRAMING_MAX_ZOOM = 1;
 
-/** Restore the web's saved view, or centre it, when the active web changes (skipped mid-drag or mid-zoom).
- * Opening a web whose view would show none of its nodes (the view Back to
- * Civilization would appear over) lands on that button's framing instead,
- * before the first paint, so the empty view is never seen. A web just added
- * to the header (`newlyOpenedRef`) always gets that framing. */
+/** Restore the web's view from this session when the active web changes (skipped mid-drag or mid-zoom).
+ * Views are never saved with the universe (see graphViews in graphStore), so a
+ * web first seen this session, and a web just added to the header
+ * (`newlyOpenedRef`), opens framed on its largest cluster, the way Back to
+ * Civilization frames it, zoomed in no further than OPEN_FRAMING_MAX_ZOOM.
+ * So does a remembered view that would show none of its nodes, before the
+ * first paint, so the empty view is never seen. */
 export function restoreViewForGraph(ctx) {
   const {
     draggingNodeInfoRef, isAnimatingZoomRef, wasDraggingRef, setIsViewReady, activeGraphId, viewportSize,
@@ -34,13 +36,8 @@ export function restoreViewForGraph(ctx) {
   // Ensure we have valid sizes and an active graph
   if (activeGraphId && viewportSize.width > 0 && viewportSize.height > 0 && canvasSize.width > 0 && canvasSize.height > 0) {
 
-    // Read graph data imperatively (not from deps) so store mutations don't re-trigger this effect
-    const liveState = useGraphStore.getState();
-    const graphData = liveState.graphs.get(activeGraphId);
-    // Live viewport comes from the graphViews slice; the graph's own fields are
-    // the fallback for a graph loaded from file whose camera hasn't moved yet.
-    // See graphViews in graphStore for why the two are separate.
-    const storedView = liveState.graphViews?.get(activeGraphId) || graphData;
+    // Read imperatively (not from deps) so store mutations don't re-trigger this effect.
+    const storedView = useGraphStore.getState().graphViews?.get(activeGraphId);
     let view;
 
     if (storedView && storedView.panOffset && typeof storedView.zoomLevel === 'number') {
@@ -55,8 +52,13 @@ export function restoreViewForGraph(ctx) {
       } else {
         view = { pan: savedPan, zoom: savedZoom };
       }
+    } else if (nodes.length > 0) {
+      // No view this session: frame the largest cluster. Every time, not only
+      // on opening: a resize before the first view is recorded must not drop
+      // the camera on the empty middle of the canvas.
+      view = civilizationView({ nodes, baseDimsById, viewportSize, canvasSize, connections, maxZoom: OPEN_FRAMING_MAX_ZOOM });
     } else {
-      // No stored state, center the view as before
+      // An empty web: the middle of the canvas.
 
       // Target the center of the canvas
       const targetCanvasX = canvasSize.width / 2;
@@ -86,7 +88,7 @@ export function restoreViewForGraph(ctx) {
     openedGraphRef.current = activeGraphId;
     const newlyOpened = justOpened && newlyOpenedRef?.current === activeGraphId;
     if (newlyOpened) newlyOpenedRef.current = null;
-    if (justOpened && nodes.length > 0) {
+    if (justOpened && nodes.length > 0 && storedView) {
       if (newlyOpened) {
         view = civilizationView({ nodes, baseDimsById, viewportSize, canvasSize, connections, maxZoom: OPEN_FRAMING_MAX_ZOOM });
       } else {

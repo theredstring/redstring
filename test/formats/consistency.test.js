@@ -229,7 +229,12 @@ describe('Format Consistency', () => {
     const normalizedOriginal = normalizeForComparison(originalState);
     const normalizedImported = normalizeForComparison(importedState);
     
-    // Assert perfect equality of core data
+    // Assert perfect equality of core data. The camera is not in the file
+    // (graphViews in graphStore): a web opens framed on its largest cluster.
+    for (const graph of Object.values(normalizedOriginal.graphs)) {
+      delete graph.panOffset;
+      delete graph.zoomLevel;
+    }
     expect(normalizedImported.graphs).toEqual(normalizedOriginal.graphs);
     expect(normalizedImported.nodePrototypes).toEqual(normalizedOriginal.nodePrototypes);
     expect(normalizedImported.edges).toEqual(normalizedOriginal.edges);

@@ -44,6 +44,9 @@ export function backToCivilization(ctx) {
   transform.jumpTo(view.pan, view.zoom);
 }
 
+// The furthest out framing zooms when a cluster is too big to fit.
+const FRAMING_MIN_ZOOM = 0.2;
+
 // Two clusters count as separate when the empty space between them is at least
 // this many times the web's usual spacing (median gap from a node to its nearest
 // neighbour), and never less than MIN_CLUSTER_GAP canvas units.
@@ -137,8 +140,8 @@ export function civilizationView({ nodes, baseDimsById, viewportSize, canvasSize
   }
 
   // Calculate the center of relevant nodes
-  const nodesCenterX = (minX + maxX) / 2;
-  const nodesCenterY = (minY + maxY) / 2;
+  let nodesCenterX = (minX + maxX) / 2;
+  let nodesCenterY = (minY + maxY) / 2;
   const nodesWidth = maxX - minX;
   const nodesHeight = maxY - minY;
 
@@ -146,10 +149,28 @@ export function civilizationView({ nodes, baseDimsById, viewportSize, canvasSize
   const padding = 150;
   const targetZoomX = viewportSize.width / (nodesWidth + padding * 2);
   const targetZoomY = viewportSize.height / (nodesHeight + padding * 2);
-  let targetZoom = Math.min(targetZoomX, targetZoomY);
+  const fitZoom = Math.min(targetZoomX, targetZoomY);
 
-  // Clamp zoom to reasonable bounds
-  targetZoom = Math.max(Math.min(targetZoom, maxZoom), 0.2);
+  // Never further out than FRAMING_MIN_ZOOM, nor than the canvas allows (the
+  // wheel's floor, NodeCanvas's MIN_ZOOM), so the camera never snaps after.
+  const canvasMinZoom = Math.max(viewportSize.width / canvasSize.width, viewportSize.height / canvasSize.height, 0.05);
+  const minZoom = Math.min(Math.max(FRAMING_MIN_ZOOM, canvasMinZoom), maxZoom);
+  const targetZoom = Math.max(Math.min(fitZoom, maxZoom), minZoom);
+
+  // Too big to fit even at the floor: the middle of its box can be empty (a
+  // ring, two lobes), so centre on the Thing nearest that middle instead.
+  if (fitZoom < minZoom) {
+    let best = null;
+    let bestDistance = Infinity;
+    for (const node of framed) {
+      const dims = dimsFor(node);
+      const cx = node.x + dims.currentWidth / 2;
+      const cy = node.y + dims.currentHeight / 2;
+      const distance = Math.hypot(cx - nodesCenterX, cy - nodesCenterY);
+      if (distance < bestDistance) { bestDistance = distance; best = { cx, cy }; }
+    }
+    if (best) { nodesCenterX = best.cx; nodesCenterY = best.cy; }
+  }
 
   // Calculate pan to center the target area (accounting for canvas offset)
   const targetPanX = (viewportSize.width / 2) - (nodesCenterX - canvasSize.offsetX) * targetZoom;

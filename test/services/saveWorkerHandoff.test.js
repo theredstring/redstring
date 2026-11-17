@@ -98,11 +98,12 @@ afterEach(() => {
 });
 
 describe('the save worker hand-off', () => {
-  it('writes exactly what a main-thread export writes, viewports and preserved fields included', () => {
+  it('writes exactly what a main-thread export writes, preserved fields included and no camera', () => {
     const { posted, text } = saveViaWorker(base);
     expect(posted.full).toBe(true);
     expect(text).toBe(mainThreadText(base));
-    expect(text).toContain('"x": 120');
+    expect(text).not.toContain('"x": 120');
+    expect(text).not.toContain('panOffset');
     expect(text).toContain('futureField');
   });
 
@@ -179,12 +180,80 @@ describe('the save worker hand-off', () => {
     saveCoordinator.isEnabled = true;
     saveCoordinator._primeWorker(base);
     expect(postMessage.mock.calls[0][0]).toMatchObject({ type: 'prime', full: true });
-    // The worker takes the copy and says nothing.
-    expect(runWorker(postMessage.mock.calls[0][0])).toBeUndefined();
+    // The worker takes the copy and answers with its hash only: no file.
+    const { reply } = runWorker(postMessage.mock.calls[0][0]);
+    expect(reply).toMatchObject({ type: 'primed' });
+    expect(reply).not.toHaveProperty('jsonBytes');
     const next = renamed(base, [...base.nodePrototypes.keys()][6], 'First edit');
     const { posted, text } = saveViaWorker(next);
     expect(posted.full).toBe(false);
     expect(text).toBe(mainThreadText(next));
+  });
+
+  describe('right after a load', () => {
+    const scheduleSave = vi.fn();
+    let realSchedule;
+    beforeEach(() => {
+      realSchedule = saveCoordinator.scheduleSave;
+      saveCoordinator.scheduleSave = scheduleSave;
+      scheduleSave.mockClear();
+      saveCoordinator.isEnabled = true;
+      saveCoordinator.isDirty = false;
+      saveCoordinator.pendingHash = null;
+    });
+    afterEach(() => {
+      saveCoordinator.scheduleSave = realSchedule;
+      saveCoordinator.isDirty = false;
+      saveCoordinator.pendingHash = null;
+    });
+
+    /** A load as onStateChange sees it, with the worker's answer to the prime run through. */
+    const load = (state) => {
+      const postMessage = vi.fn();
+      saveCoordinator.saveWorker = { postMessage, terminate: () => {} };
+      vi.useRealTimers();
+      saveCoordinator.onStateChange(state, { type: 'load' });
+      return new Promise((resolve) => setTimeout(resolve, 0)).then(() => {
+        const prime = postMessage.mock.calls.find(([m]) => m.type === 'prime')?.[0];
+        return { prime, reply: prime ? runWorker(prime)?.reply : null };
+      });
+    };
+
+    it('a write that changes nothing in the file is not a change to save', async () => {
+      const { prime, reply } = await load(base);
+      expect(prime).toBeTruthy();
+      saveCoordinator.handleWorkerMessage({ data: reply });
+      // The universe as loaded, but a new object: what any store write
+      // that leaves the file's content alone produces.
+      const { reply: saved } = saveViaWorker({ ...base });
+      saveCoordinator.handleWorkerMessage({ data: saved });
+      expect(saveCoordinator.isDirty).toBe(false);
+      expect(scheduleSave).not.toHaveBeenCalled();
+    });
+
+    it('a real edit after the load still saves', async () => {
+      const { reply } = await load(base);
+      saveCoordinator.handleWorkerMessage({ data: reply });
+      const { reply: saved } = saveViaWorker(renamed(base, [...base.nodePrototypes.keys()][2], 'Edited'));
+      saveCoordinator.handleWorkerMessage({ data: saved });
+      expect(saveCoordinator.isDirty).toBe(true);
+      expect(scheduleSave).toHaveBeenCalledTimes(1);
+    });
+
+    it("an earlier load's answer arriving after a newer load is ignored", async () => {
+      const first = await load(base);
+      const other = renamed(base, [...base.nodePrototypes.keys()][3], 'Other universe');
+      await load(other);
+      saveCoordinator.handleWorkerMessage({ data: first.reply });
+      expect(saveCoordinator.lastSaveHash).toBeNull();
+    });
+
+    it('does not count as the worker finishing a save', async () => {
+      const { reply } = await load(base);
+      saveCoordinator.workerProcessing = true;
+      saveCoordinator.handleWorkerMessage({ data: reply });
+      expect(saveCoordinator.workerProcessing).toBe(true);
+    });
   });
 
   it('a failed copy at load just means the next save sends the whole state', () => {

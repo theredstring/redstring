@@ -1,7 +1,7 @@
 /**
  * Switching webs on a Git-backed universe waits before it saves.
  *
- * The file remembers which webs are open and which is active, so a switch is
+ * The file remembers which webs are open, so opening or closing one is
  * a real change to it — but not an edit, and it rewrote the whole universe on
  * every click. On a Git-backed universe a switch now waits a few seconds, or
  * rides along with the next real edit. A universe whose local file is the
@@ -14,21 +14,27 @@ const WAIT_MS = 3000;
 // Idle window (1500) + write debounce (1000) + dispatch, with room to spare.
 const NORMAL_SAVE_MS = 3000;
 
-const stateWith = ({ activeGraphId = 'g1', names = ['dog'] } = {}) => ({
+// Which webs are open is in the file; which one is active is not (a
+// universe opens on its first open web), so a switch the file sees is a tab.
+const TABS = ['g1', 'g2'];
+const OPENED = ['g1', 'g2', 'g3'];
+
+const stateWith = ({ tabs = TABS, names = ['dog'] } = {}) => ({
   graphs: new Map([
     ['g1', { id: 'g1', name: 'One', instances: new Map(), edgeIds: [] }],
-    ['g2', { id: 'g2', name: 'Two', instances: new Map(), edgeIds: [] }]
+    ['g2', { id: 'g2', name: 'Two', instances: new Map(), edgeIds: [] }],
+    ['g3', { id: 'g3', name: 'Three', instances: new Map(), edgeIds: [] }]
   ]),
   nodePrototypes: new Map(names.map((n) => [n, { id: n, name: n }])),
   edges: new Map(),
-  openGraphIds: ['g1', 'g2'],
-  activeGraphId,
+  openGraphIds: tabs,
+  activeGraphId: 'g1',
   isUniverseLoading: false,
   universeLoadingError: null,
   hasUniverseFile: true
 });
 
-const NAV = { type: 'active_graph_change', navigationOnly: true };
+const NAV = { type: 'tab_open', navigationOnly: true };
 const EDIT = { type: 'node_add', navigationOnly: false };
 
 describe('SaveCoordinator: web switches wait on a Git-backed universe', () => {
@@ -70,7 +76,7 @@ describe('SaveCoordinator: web switches wait on a Git-backed universe', () => {
   });
 
   it('does not start a save, or say it is saving, during the wait', async () => {
-    saveCoordinator.onStateChange(stateWith({ activeGraphId: 'g2' }), NAV);
+    saveCoordinator.onStateChange(stateWith({ tabs: OPENED }), NAV);
     await vi.advanceTimersByTimeAsync(WAIT_MS - 100);
 
     expect(fileStorage.saveToFile).not.toHaveBeenCalled();
@@ -78,7 +84,7 @@ describe('SaveCoordinator: web switches wait on a Git-backed universe', () => {
   });
 
   it('saves the switch once the wait is over', async () => {
-    const switched = stateWith({ activeGraphId: 'g2' });
+    const switched = stateWith({ tabs: OPENED });
     saveCoordinator.onStateChange(switched, NAV);
     await vi.advanceTimersByTimeAsync(WAIT_MS + NORMAL_SAVE_MS);
 
@@ -88,9 +94,9 @@ describe('SaveCoordinator: web switches wait on a Git-backed universe', () => {
   });
 
   it('saves only once for several switches in a row', async () => {
-    saveCoordinator.onStateChange(stateWith({ activeGraphId: 'g2' }), NAV);
+    saveCoordinator.onStateChange(stateWith({ tabs: OPENED }), NAV);
     await vi.advanceTimersByTimeAsync(1000);
-    const last = stateWith({ activeGraphId: 'g1' });
+    const last = stateWith({ tabs: TABS });
     last.openGraphIds = ['g2', 'g1'];
     saveCoordinator.onStateChange(last, NAV);
     await vi.advanceTimersByTimeAsync(WAIT_MS + NORMAL_SAVE_MS);
@@ -100,9 +106,9 @@ describe('SaveCoordinator: web switches wait on a Git-backed universe', () => {
   });
 
   it('rides along with a real edit, which saves at the normal pace', async () => {
-    saveCoordinator.onStateChange(stateWith({ activeGraphId: 'g2' }), NAV);
+    saveCoordinator.onStateChange(stateWith({ tabs: OPENED }), NAV);
     await vi.advanceTimersByTimeAsync(500);
-    const edited = stateWith({ activeGraphId: 'g2', names: ['dog', 'cat'] });
+    const edited = stateWith({ tabs: OPENED, names: ['dog', 'cat'] });
     saveCoordinator.onStateChange(edited, EDIT);
     await vi.advanceTimersByTimeAsync(NORMAL_SAVE_MS);
 
@@ -117,7 +123,7 @@ describe('SaveCoordinator: web switches wait on a Git-backed universe', () => {
   it('never holds up an edit that is already on its way', async () => {
     saveCoordinator.onStateChange(stateWith({ names: ['dog', 'cat'] }), EDIT);
     await vi.advanceTimersByTimeAsync(100);
-    const both = stateWith({ activeGraphId: 'g2', names: ['dog', 'cat'] });
+    const both = stateWith({ tabs: OPENED, names: ['dog', 'cat'] });
     saveCoordinator.onStateChange(both, NAV);
     await vi.advanceTimersByTimeAsync(NORMAL_SAVE_MS);
 
@@ -126,7 +132,7 @@ describe('SaveCoordinator: web switches wait on a Git-backed universe', () => {
   });
 
   it('is not cancelled by a camera move', async () => {
-    const switched = stateWith({ activeGraphId: 'g2' });
+    const switched = stateWith({ tabs: OPENED });
     saveCoordinator.onStateChange(switched, NAV);
     await vi.advanceTimersByTimeAsync(1000);
     saveCoordinator.onStateChange(switched, { type: 'viewport' });
@@ -136,7 +142,7 @@ describe('SaveCoordinator: web switches wait on a Git-backed universe', () => {
   });
 
   it('writes a waiting switch when the app quits', async () => {
-    const switched = stateWith({ activeGraphId: 'g2' });
+    const switched = stateWith({ tabs: OPENED });
     saveCoordinator.onStateChange(switched, NAV);
     await vi.advanceTimersByTimeAsync(500);
 
@@ -147,7 +153,7 @@ describe('SaveCoordinator: web switches wait on a Git-backed universe', () => {
   });
 
   it('drops a waiting switch when the universe is switched away', async () => {
-    saveCoordinator.onStateChange(stateWith({ activeGraphId: 'g2' }), NAV);
+    saveCoordinator.onStateChange(stateWith({ tabs: OPENED }), NAV);
     saveCoordinator.cancelPendingSaves();
     await vi.advanceTimersByTimeAsync(WAIT_MS + NORMAL_SAVE_MS);
 
@@ -157,7 +163,7 @@ describe('SaveCoordinator: web switches wait on a Git-backed universe', () => {
 
   it('saves straight away when the local file is the source of truth', async () => {
     useEngine('local');
-    saveCoordinator.onStateChange(stateWith({ activeGraphId: 'g2' }), NAV);
+    saveCoordinator.onStateChange(stateWith({ tabs: OPENED }), NAV);
     await vi.advanceTimersByTimeAsync(NORMAL_SAVE_MS);
 
     expect(fileStorage.saveToFile).toHaveBeenCalledTimes(1);
@@ -165,7 +171,7 @@ describe('SaveCoordinator: web switches wait on a Git-backed universe', () => {
 
   it('saves straight away on a universe with no Git engine', async () => {
     saveCoordinator.gitSyncEngine = null;
-    saveCoordinator.onStateChange(stateWith({ activeGraphId: 'g2' }), NAV);
+    saveCoordinator.onStateChange(stateWith({ tabs: OPENED }), NAV);
     await vi.advanceTimersByTimeAsync(NORMAL_SAVE_MS);
 
     expect(fileStorage.saveToFile).toHaveBeenCalledTimes(1);
@@ -173,7 +179,7 @@ describe('SaveCoordinator: web switches wait on a Git-backed universe', () => {
 
   it('treats an unmarked change as an edit, whatever its type', async () => {
     // Only the middleware's explicit flag may make a change wait.
-    saveCoordinator.onStateChange(stateWith({ activeGraphId: 'g2' }), { type: 'active_graph_change' });
+    saveCoordinator.onStateChange(stateWith({ tabs: OPENED }), { type: 'tab_open' });
     await vi.advanceTimersByTimeAsync(NORMAL_SAVE_MS);
 
     expect(fileStorage.saveToFile).toHaveBeenCalledTimes(1);

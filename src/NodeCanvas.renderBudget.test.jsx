@@ -100,6 +100,10 @@ const makePrototype = (id, name) => ({
 const seedStore = () => {
   useGraphStore.setState({
     graphs: new Map([['g1', makeGraph('g1')]]),
+    // A known camera: zoom 1, world (0,0) at client (500,400). Without one the
+    // web would open framed on its Things, and a pan's numbers would depend on
+    // that framing.
+    graphViews: new Map([['g1', { panOffset: { x: -49500, y: -49600 }, zoomLevel: 1 }]]),
     nodePrototypes: new Map([
       ['p1', makePrototype('p1', 'Alpha')],
       ['p2', makePrototype('p2', 'Beta')],

@@ -19,25 +19,31 @@ const SETTLE_MS = 10000;
 // Idle window on a big universe (2500) + write debounce (1000) + dispatch, with room to spare.
 const NORMAL_SAVE_MS = 4000;
 
-const universe = ({ size = LARGE_UNIVERSE_SIZE, x = 0, activeGraphId = 'g1', extraName = null } = {}) => {
+// Which webs are open is in the file; which one is active is not (a
+// universe opens on its first open web), so a switch the file sees is a tab.
+const TABS = ['g1', 'g2'];
+const OPENED = ['g1', 'g2', 'g3'];
+
+const universe = ({ size = LARGE_UNIVERSE_SIZE, x = 0, tabs = TABS, extraName = null } = {}) => {
   const nodePrototypes = new Map(Array.from({ length: size }, (_, i) => [`p${i}`, { id: `p${i}`, name: `Thing ${i}` }]));
   if (extraName) nodePrototypes.set('extra', { id: 'extra', name: extraName });
   return {
     graphs: new Map([
       ['g1', { id: 'g1', name: 'One', instances: new Map([['i1', { id: 'i1', prototypeId: 'p1', x, y: 0, scale: 1 }]]), edgeIds: [] }],
       ['g2', { id: 'g2', name: 'Two', instances: new Map(), edgeIds: [] }],
+      ['g3', { id: 'g3', name: 'Three', instances: new Map(), edgeIds: [] }],
     ]),
     nodePrototypes,
     edges: new Map(),
-    openGraphIds: ['g1', 'g2'],
-    activeGraphId,
+    openGraphIds: tabs,
+    activeGraphId: 'g1',
     isUniverseLoading: false,
     universeLoadingError: null,
     hasUniverseFile: true,
   };
 };
 
-const SWITCH = { type: 'active_graph_change', navigationOnly: true };
+const SWITCH = { type: 'tab_open', navigationOnly: true };
 const EDIT = { type: 'prototype_update', navigationOnly: false };
 const DRAG = { type: 'node_position', navigationOnly: false, isDragging: true, phase: 'move' };
 
@@ -73,7 +79,7 @@ describe('SaveCoordinator: web switches wait on a big universe', () => {
   });
 
   it('a switch waits until nothing has happened for 10 s, then saves once, without saying "Saving..."', async () => {
-    const switched = universe({ activeGraphId: 'g2' });
+    const switched = universe({ tabs: OPENED });
     saveCoordinator.onStateChange(switched, SWITCH);
     await vi.advanceTimersByTimeAsync(SETTLE_MS - 100);
     expect(fileStorage.saveToFile).not.toHaveBeenCalled();
@@ -84,11 +90,11 @@ describe('SaveCoordinator: web switches wait on a big universe', () => {
   });
 
   it('every switch starts the wait again', async () => {
-    saveCoordinator.onStateChange(universe({ activeGraphId: 'g2' }), SWITCH);
+    saveCoordinator.onStateChange(universe({ tabs: OPENED }), SWITCH);
     await vi.advanceTimersByTimeAsync(6000);
-    saveCoordinator.onStateChange(universe({ activeGraphId: 'g1' }), SWITCH);
+    saveCoordinator.onStateChange(universe({ tabs: TABS }), SWITCH);
     await vi.advanceTimersByTimeAsync(6000);
-    const last = universe({ activeGraphId: 'g2' });
+    const last = universe({ tabs: OPENED });
     saveCoordinator.onStateChange(last, SWITCH);
     await vi.advanceTimersByTimeAsync(SETTLE_MS - 100);
     expect(fileStorage.saveToFile).not.toHaveBeenCalled();
@@ -98,9 +104,9 @@ describe('SaveCoordinator: web switches wait on a big universe', () => {
   });
 
   it('an edit saves on the normal schedule and takes the waiting switch with it', async () => {
-    saveCoordinator.onStateChange(universe({ activeGraphId: 'g2' }), SWITCH);
+    saveCoordinator.onStateChange(universe({ tabs: OPENED }), SWITCH);
     await vi.advanceTimersByTimeAsync(1000);
-    const edited = universe({ activeGraphId: 'g2', extraName: 'New thing' });
+    const edited = universe({ tabs: OPENED, extraName: 'New thing' });
     saveCoordinator.onStateChange(edited, EDIT);
     await vi.advanceTimersByTimeAsync(NORMAL_SAVE_MS);
     expect(fileStorage.saveToFile).toHaveBeenCalledTimes(1);
@@ -124,7 +130,7 @@ describe('SaveCoordinator: web switches wait on a big universe', () => {
   });
 
   it('closing or hiding the app writes a waiting switch straight away', async () => {
-    const switched = universe({ activeGraphId: 'g2' });
+    const switched = universe({ tabs: OPENED });
     saveCoordinator.onStateChange(switched, SWITCH);
     await vi.advanceTimersByTimeAsync(500);
     await saveCoordinator.flush('electron-quit', { terminal: true });
@@ -134,7 +140,7 @@ describe('SaveCoordinator: web switches wait on a big universe', () => {
 
   it('a small universe saves a switch as it always has', async () => {
     saveCoordinator.lastSaveHash = saveCoordinator.generateStateHash(universe({ size: 20 }));
-    saveCoordinator.onStateChange(universe({ size: 20, activeGraphId: 'g2' }), SWITCH);
+    saveCoordinator.onStateChange(universe({ size: 20, tabs: OPENED }), SWITCH);
     await vi.advanceTimersByTimeAsync(NORMAL_SAVE_MS);
     expect(fileStorage.saveToFile).toHaveBeenCalledTimes(1);
   });

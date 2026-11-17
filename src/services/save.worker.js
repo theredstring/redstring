@@ -69,13 +69,19 @@ self.onmessage = (e) => {
   const { type, userDomain } = e.data;
 
   if (type === 'prime') {
-    // A universe just loaded: take the copy, nothing to save or report.
+    // A universe just loaded: take the copy, and answer with its hash, which
+    // is the hash of what its file already holds. Without it the coordinator
+    // had nothing to compare the first change against, so any store write
+    // after a load, even one that changed nothing in the file, rewrote it.
     try {
       const applied = applySaveMessage(mirror, e.data);
       if (applied) {
         // A whole new copy: nothing kept from the last one applies.
         if (e.data.full) forgetCaches();
         mirror = applied;
+        const useCache = !cacheDisabled && isLarge(mirror);
+        const hash = generateStateHash(mirror, useCache ? { cache: hashCache } : undefined);
+        self.postMessage({ type: 'primed', hash, loadId: e.data.loadId ?? null });
       } else {
         self.postMessage({ type: 'prime-failed' });
       }

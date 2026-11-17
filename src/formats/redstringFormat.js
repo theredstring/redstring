@@ -707,6 +707,11 @@ const buildSummaryEntry = (graph, graphId, inputs, now) => {
  * this is exactly how `wizardPlansByConversation` was being erased on every
  * autosave. Add a new persisted field here AND to the export block below AND
  * to the import hydration, or it round-trips lossily.
+ *
+ * `activeGraphId` and `activeDefinitionNodeId` are listed but not written: a
+ * universe opens on its first open web. They stay so undo restores them with
+ * the cascades of deleting a web (historyPolicy.js), and a shared merge keeps
+ * the person on their own web (syncMerge.js).
  */
 export const PERSISTED_STORE_KEYS = [
   'graphs',
@@ -838,7 +843,7 @@ const SCHEME_IRI = 'urn:redstring:scheme';
  * last). A pure function of its arguments, so the save worker can reuse its
  * bytes while they're unchanged (exportCache.js).
  */
-const exportGraphEntry = (graph, graphId, graphView, expanded, active) => {
+const exportGraphEntry = (graph, graphId, expanded) => {
   // Export instances as positioned individuals with rdf:type relationships
   const spatialInstances = {};
   if (graph.instances) {
@@ -929,17 +934,9 @@ const exportGraphEntry = (graph, graphId, graphView, expanded, active) => {
     ...(graph.picture != null ? { "redstring:picture": graph.picture } : {}),
     ...(graph.createdAt != null ? { "redstring:createdAt": graph.createdAt } : {}),
 
-    // Viewport state for this graph.
-    //
-    // Live pan/zoom lives in the store's graphViews slice, not on the graph —
-    // see graphViews in graphStore's initial state. The graph's own fields are
-    // whatever was last imported, so they are the fallback for a graph the
-    // user has not moved this session. The emitted shape is unchanged.
-    "redstring:panOffset": (graphView?.panOffset) || graph.panOffset || { x: 0, y: 0 },
-    "redstring:zoomLevel": typeof graphView?.zoomLevel === 'number'
-      ? graphView.zoomLevel
-      : (typeof graph.zoomLevel === 'number' ? graph.zoomLevel : 1.0),
-    
+    // No camera: where a web was last looked at is not part of the universe
+    // (see graphViews in graphStore). A web opens framed on its largest cluster.
+
     // Spatial instances collection
     "redstring:instances": spatialInstances,
     
@@ -982,10 +979,10 @@ const exportGraphEntry = (graph, graphId, graphView, expanded, active) => {
       return groupsObj;
     })(),
     
-    // UI state for this graph
+    // UI state for this graph. Which web is active is not written: a universe
+    // opens on the first of its open webs.
     "redstring:visualProperties": {
-      "redstring:expanded": expanded,
-      "redstring:activeInContext": active
+      "redstring:expanded": expanded
     }
   };
   // Quarantined unknown fields ride back out verbatim (D1/P1.3)
@@ -1371,10 +1368,7 @@ export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT
       nodePrototypes = new Map(),
       edges = new Map(),
       edgePrototypes = new Map(),
-      graphViews = new Map(),
       openGraphIds = [],
-      activeGraphId = null,
-      activeDefinitionNodeId = null,
       expandedGraphIds = new Set(),
       rightPanelTabs = [],
       savedNodeIds = new Set(),
@@ -1448,13 +1442,10 @@ export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT
   // v4 with each web's connections inside it (D10, P3.1).
   const spatialGraphs = {};
   graphs.forEach((graph, graphId) => {
-    // Live viewport for this graph, if the camera has moved since load.
-    const graphView = graphViews instanceof Map ? graphViews.get(graphId) : graphViews?.[graphId];
     const expanded = expandedGraphIds.has(graphId);
-    const active = graphId === activeGraphId;
     const owned = edgesByGraph.get(String(graphId)) || [];
     const build = () => {
-      const entry = exportGraphEntry(graph, graphId, graphView, expanded, active);
+      const entry = exportGraphEntry(graph, graphId, expanded);
       if (emitV4) {
         const graphEdges = {};
         for (const [id, edge, sourcePrototypeId, destinationPrototypeId, predicatePrototypeId] of owned) {
@@ -1464,12 +1455,13 @@ export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT
       }
       return entry;
     };
-    // The viewport by value: the store hands over a new copy of it on every save.
-    const inputs = [graph, graphView?.panOffset ? JSON.stringify(graphView.panOffset) : null,
-      typeof graphView?.zoomLevel === 'number' ? graphView.zoomLevel : null, expanded, active];
+    const inputs = [graph, expanded];
     for (const item of owned) inputs.push(...item);
     spatialGraphs[graphId] = piece('graph', graphId, inputs, build);
   });
+
+  // The file's title names the web it opens on: the first open one.
+  const firstOpenGraph = openGraphIds.map((id) => graphs.get(id)).find(Boolean) || null;
 
   // Three-Layer Architecture: Export Prototypes as Semantic Classes
   const broader = broaderLinks(nodePrototypes);
@@ -1521,8 +1513,8 @@ export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT
       // adopting a same-named file that belongs to a DIFFERENT universe as a
       // save target (which would overwrite it). Absent for pre-stamp files.
       ...(storeState._universeSlug ? { "universeSlug": storeState._universeSlug } : {}),
-      "title": (activeGraphId && graphs.get(activeGraphId)?.name) || "New Thing",
-      "description": (activeGraphId && graphs.get(activeGraphId)?.description) || "",
+      "title": (firstOpenGraph?.name) || "New Thing",
+      "description": (firstOpenGraph?.description) || "",
       "domain": userDomain || null,
       "userURIs": userURIs,
       "semanticWebCompliant": true,
@@ -1571,8 +1563,6 @@ export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT
     "userInterface": {
       "@type": "redstring:UserInterfaceState",
       "redstring:openGraphIds": [...openGraphIds],
-      "redstring:activeGraphId": activeGraphId,
-      "redstring:activeDefinitionNodeId": activeDefinitionNodeId,
       "redstring:expandedGraphIds": [...expandedGraphIds],
       "redstring:rightPanelTabs": [...rightPanelTabs],
       "redstring:savedNodeIds": [...savedNodeIds],
@@ -1614,6 +1604,17 @@ export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT
     console.error('[exportToRedstring] Error during export:', error);
     throw new Error(`Failed to export to Redstring format: ${error.message}`);
   }
+};
+
+
+/**
+ * The web a universe opens on, and its defining Thing: the first open web that
+ * exists. Nothing when no web is open (the store's load picks one then).
+ */
+const openingWeb = (graphsMap, openGraphIds) => {
+  const id = Array.isArray(openGraphIds) ? openGraphIds.find((gid) => graphsMap.has(gid)) : null;
+  if (!id) return { activeGraphId: null, activeDefinitionNodeId: null };
+  return { activeGraphId: id, activeDefinitionNodeId: graphsMap.get(id)?.definingNodeIds?.[0] || null };
 };
 
 /**
@@ -1952,24 +1953,8 @@ export const importFromRedstring = (redstringData, storeActions) => {
           graphShape.edgeIds = cleanEdgeIds;
         }
 
-        // Extract viewport state for this graph
-        if (graph['@type'] === 'redstring:SpatialGraph') {
-          // New semantic format
-          if (graph['redstring:panOffset']) {
-            graphShape.panOffset = graph['redstring:panOffset'];
-          }
-          if (graph['redstring:zoomLevel'] !== undefined) {
-            graphShape.zoomLevel = graph['redstring:zoomLevel'];
-          }
-        } else {
-          // Legacy format
-          if (graph.panOffset) {
-            graphShape.panOffset = graph.panOffset;
-          }
-          if (graph.zoomLevel !== undefined) {
-            graphShape.zoomLevel = graph.zoomLevel;
-          }
-        }
+        // A camera saved by an older version (redstring:panOffset/zoomLevel)
+        // is not read: webs open framed on their largest cluster.
 
         // Restore semantic/visual graph fields (see export). Only set when
         // present so absent-in-old-file leaves the store default intact.
@@ -2334,8 +2319,6 @@ export const importFromRedstring = (redstringData, storeActions) => {
     // Extract UI state from either new format or legacy format
     const uiState = userInterface || {};
     const extractedOpenGraphIds = uiState['redstring:openGraphIds'] || uiState.openGraphIds || [];
-    const extractedActiveGraphId = uiState['redstring:activeGraphId'] || uiState.activeGraphId || null;
-    const extractedActiveDefinitionNodeId = uiState['redstring:activeDefinitionNodeId'] || uiState.activeDefinitionNodeId || null;
     const extractedExpandedGraphIds = uiState['redstring:expandedGraphIds'] || uiState.expandedGraphIds || [];
     const extractedRightPanelTabs = uiState['redstring:rightPanelTabs'] || uiState.rightPanelTabs || [];
     const extractedSavedNodeIds = uiState['redstring:savedNodeIds'] || uiState.savedNodeIds || [];
@@ -2363,8 +2346,9 @@ export const importFromRedstring = (redstringData, storeActions) => {
       edges: edgesMap,
       edgePrototypes: edgePrototypesMap,
       openGraphIds: Array.isArray(extractedOpenGraphIds) ? extractedOpenGraphIds : [],
-      activeGraphId: extractedActiveGraphId,
-      activeDefinitionNodeId: extractedActiveDefinitionNodeId,
+      // The universe opens on its first open web. An active web saved by an
+      // older version is not read.
+      ...openingWeb(graphsMap, extractedOpenGraphIds),
       expandedGraphIds: new Set(Array.isArray(extractedExpandedGraphIds) ? extractedExpandedGraphIds : []),
       rightPanelTabs: Array.isArray(extractedRightPanelTabs) ? extractedRightPanelTabs : [],
       savedNodeIds: new Set(Array.isArray(extractedSavedNodeIds) ? extractedSavedNodeIds : []),

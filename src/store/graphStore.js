@@ -2037,9 +2037,13 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     // camera was pointing.
     //
     // Nothing renders from this slice reactively: NodeCanvas reads it
-    // imperatively when restoring a graph's view, and the exporter reads it when
-    // writing a file. The on-disk format is unchanged — viewport is still
-    // serialised per graph — so this is invisible outside the store.
+    // imperatively when restoring a graph's view.
+    //
+    // NEVER SAVED. Where each web was last looked at lives only for the session:
+    // it is not in the file, the save hash or Git, so a pan or zoom never saves
+    // and never shows up in a commit. A web with no view here opens framed on
+    // its largest cluster (viewPersistence.js). Reloading the same universe
+    // (a Git pull) keeps the views of the webs it still has.
     graphViews: new Map(),
     // Prototypes explicitly protected from cleanup (e.g., local Orbit catalog)
     protectedPrototypeIds: new Set(),
@@ -9938,24 +9942,32 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
         const upgradedFormulas = restoreFormulaParts(storeState);
         if (upgradedFormulas > 0) console.log(`[graphStore] Restored the parentheses of ${upgradedFormulas} equation definition(s)`);
 
-        // Lift the imported per-graph viewport into the graphViews slice. The
-        // file format still carries pan/zoom on each graph, and the importer
-        // still puts it there — this is the one place it becomes live state, so
-        // that updateGraphView never has to touch the graphs Map. See graphViews
-        // in the initial state for why.
+        // Where the person is looking is never in the file (see graphViews in
+        // the initial state). Reloading the universe that is already open (a
+        // Git pull, a shared universe catching up) keeps it: the session's
+        // views of the webs it still has, and the web they are on if it is
+        // still open. Another universe shares no web ids, so it starts fresh
+        // and opens on its first open web.
         try {
-          const views = new Map();
           const incoming = storeState.graphs;
-          if (incoming instanceof Map) {
-            for (const [id, g] of incoming) {
-              if (g?.panOffset && typeof g.zoomLevel === 'number') {
-                views.set(id, { panOffset: g.panOffset, zoomLevel: g.zoomLevel });
-              }
+          const views = new Map();
+          if (incoming instanceof Map && currentState.graphViews instanceof Map) {
+            for (const [id, view] of currentState.graphViews) {
+              if (incoming.has(id)) views.set(id, view);
             }
           }
           storeState.graphViews = views;
+          const here = currentState.activeGraphId;
+          if (here && incoming instanceof Map && incoming.has(here)
+            && Array.isArray(storeState.openGraphIds) && storeState.openGraphIds.includes(here)) {
+            storeState.activeGraphId = here;
+            const definer = currentState.activeDefinitionNodeId;
+            storeState.activeDefinitionNodeId = definer && storeState.nodePrototypes?.has?.(definer)
+              ? definer
+              : (incoming.get(here)?.definingNodeIds?.[0] || null);
+          }
         } catch (e) {
-          console.warn('[graphStore] Failed to derive graphViews during load:', e);
+          console.warn('[graphStore] Failed to keep the view during load:', e);
           storeState.graphViews = new Map();
         }
 

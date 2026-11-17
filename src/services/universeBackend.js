@@ -1609,49 +1609,8 @@ class UniverseBackend {
                       }
                     } catch (_) { /* if counts fail, conservatively allow the load */ }
 
-                    // Preserve current viewport (panOffset, zoomLevel) to avoid jarring resets after background load
-                    try {
-                      const current = this.storeOperations.getState?.();
-                      const activeGraphId = current?.activeGraphId;
-                      const currentGraphs = current?.graphs;
-                      if (activeGraphId && currentGraphs && (currentGraphs instanceof Map ? currentGraphs.has(activeGraphId) : currentGraphs[activeGraphId])) {
-                        const currentGraph = currentGraphs instanceof Map ? currentGraphs.get(activeGraphId) : currentGraphs[activeGraphId];
-                        // Live viewport is the graphViews slice; the graph's own
-                        // fields are the fallback for a graph whose camera has
-                        // not moved since it was loaded. See graphViews in
-                        // graphStore.
-                        const currentView = current?.graphViews instanceof Map
-                          ? current.graphViews.get(activeGraphId)
-                          : null;
-                        const prevPan = currentView?.panOffset ?? currentGraph?.panOffset;
-                        const prevZoom = typeof currentView?.zoomLevel === 'number'
-                          ? currentView.zoomLevel
-                          : currentGraph?.zoomLevel;
-                        if (prevPan && typeof prevZoom === 'number') {
-                          // Carry it on the incoming graph AND the incoming
-                          // viewport slice: the graph copy is what a subsequent
-                          // export falls back to, the slice is what the canvas
-                          // actually restores from.
-                          const nextGraphs = bgState.graphs;
-                          if (nextGraphs) {
-                            if (nextGraphs instanceof Map) {
-                              const g = nextGraphs.get(activeGraphId);
-                              if (g) {
-                                g.panOffset = prevPan;
-                                g.zoomLevel = prevZoom;
-                              }
-                            } else if (typeof nextGraphs === 'object' && nextGraphs[activeGraphId]) {
-                              nextGraphs[activeGraphId].panOffset = prevPan;
-                              nextGraphs[activeGraphId].zoomLevel = prevZoom;
-                            }
-                          }
-                          if (!(bgState.graphViews instanceof Map)) bgState.graphViews = new Map();
-                          bgState.graphViews.set(activeGraphId, { panOffset: prevPan, zoomLevel: prevZoom });
-                        }
-                      }
-                    } catch (_) {
-                      // Best-effort viewport preservation; ignore if unavailable
-                    }
+                    // The camera and the web the person is on carry across
+                    // this reload in loadUniverseFromFile (see graphViews).
 
                     const success = this.storeOperations.loadUniverseFromFile(bgState);
                     if (!success) {

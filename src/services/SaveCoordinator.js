@@ -681,6 +681,17 @@ class SaveCoordinator {
   handleWorkerMessage(e) {
     const { type, hash, jsonBytes, jsonString, success, error, code } = e.data;
 
+    // The worker's answer to a load's prime: the hash of what the file holds.
+    // Not a save pass, so none of the bookkeeping below applies (a save sent
+    // after the prime may still be running). Taken only for the newest load,
+    // and only while nothing has been saved since it.
+    if (type === 'primed') {
+      if (hash && e.data.loadId != null && e.data.loadId === this._loadId && this.lastSaveHash === null) {
+        this.lastSaveHash = hash;
+      }
+      return;
+    }
+
     if (this.workerSentAt) {
       this.lastWorkerMs = Date.now() - this.workerSentAt;
       this.workerSentAt = null;
@@ -710,6 +721,10 @@ class SaveCoordinator {
 
       // Check if hash changed
       if (hash !== this.lastSaveHash && hash !== this.pendingHash) {
+        if (this._firstChangeAfterLoad) {
+          vlog(`[SaveCoordinator] First change after load (${this.lastChangeContext?.type || 'unknown'}); ${this.lastSaveHash === null ? 'no loaded hash to compare with' : 'content differs from the loaded file'}`);
+        }
+        this._firstChangeAfterLoad = false;
         this.pendingHash = hash;
         // The file, pre-serialized: UTF-8 bytes from the worker (a string
         // from an older one). Every writer takes either.
@@ -848,10 +863,10 @@ class SaveCoordinator {
    * neither exports nor replies.
    * @private
    */
-  _primeWorker(state) {
+  _primeWorker(state, loadId = null) {
     if (!this.saveWorker || !state || !this.isEnabled) return;
     try {
-      this.saveWorker.postMessage({ type: 'prime', ...this._workerMessageFor(state), userDomain: null });
+      this.saveWorker.postMessage({ type: 'prime', ...this._workerMessageFor(state), userDomain: null, loadId });
     } catch (e) {
       console.warn('[SaveCoordinator] Could not give the save worker its copy:', e);
       this.mirrorSender?.reset();
@@ -1107,8 +1122,13 @@ class SaveCoordinator {
         // Now we have a real loaded baseline — saves are safe from this point.
         this.hasLoadedFromFile = true;
         // The worker's copy, while the load is still settling (see _primeWorker).
+        // Its answer is the loaded content's hash, which becomes lastSaveHash:
+        // the file already holds it. Numbered, so an earlier load's answer
+        // can't land on a later one.
+        const loadId = (this._loadId = (this._loadId || 0) + 1);
+        this._firstChangeAfterLoad = true;
         setTimeout(() => {
-          if (this.nextStateToProcess === newState) this._primeWorker(newState);
+          if (this.nextStateToProcess === newState) this._primeWorker(newState, loadId);
         }, 0);
         if (this._loggedLoadErrorGuard) this._loggedLoadErrorGuard = false;
         // Capture the data baseline we just loaded so we can detect a
