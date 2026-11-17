@@ -138,6 +138,27 @@ export function civilizationView({ nodes, baseDimsById, viewportSize, canvasSize
     maxX = Math.max(maxX, reach.maxX);
     maxY = Math.max(maxY, reach.maxY);
   }
+  // Thing-group boxes as drawn (title tab and shell reach past their Things),
+  // or the padding vanishes under them. The map is keyed by the group's title
+  // Thing and keeps other webs' entries, so only this web's count: a group in
+  // the framed cluster, or one whose box overlaps it.
+  const drawnGroups = connections?.anchors;
+  if (drawnGroups?.forEach) {
+    const webIds = new Set(nodes.map(n => n.id));
+    const framedIds = new Set(framed.map(n => n.id));
+    const cluster = { minX, minY, maxX, maxY };
+    drawnGroups.forEach((anchor, anchorId) => {
+      const b = anchor?.outerBounds;
+      if (!b || !webIds.has(anchorId)) return;
+      const overlaps = b.x <= cluster.maxX && b.x + b.width >= cluster.minX
+        && b.y <= cluster.maxY && b.y + b.height >= cluster.minY;
+      if (!framedIds.has(anchorId) && !overlaps) return;
+      minX = Math.min(minX, b.x);
+      minY = Math.min(minY, b.y);
+      maxX = Math.max(maxX, b.x + b.width);
+      maxY = Math.max(maxY, b.y + b.height);
+    });
+  }
 
   // Calculate the center of relevant nodes
   let nodesCenterX = (minX + maxX) / 2;
