@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { Search, Loader2, X, RotateCcw, ChevronDown, Compass, BookOpen, Clock, Trash2 } from 'lucide-react';
 import PanelIconButton from '../../shared/PanelIconButton.jsx';
 import { showContextMenuForElement } from '../../GlobalContextMenu.jsx';
@@ -641,8 +641,9 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
 
   // Watch the header's own width so the title/dropdown row reflows as the user
   // drags the panel. 340px is where "Semantic Web Search" plus the Discover pill
-  // stop crowding each other.
-  useEffect(() => {
+  // stop crowding each other. A layout effect, so the first frame already has
+  // the right layout; measured after paint it drew stacked, then jumped.
+  useLayoutEffect(() => {
     const el = headerRef.current;
     if (!el || typeof ResizeObserver === 'undefined') return;
     const measure = () => setIsHeaderWide(el.clientWidth >= 340);

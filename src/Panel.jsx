@@ -1457,7 +1457,7 @@ const Panel = memo(
         ? { key: 'library', title: 'All Things', Icon: LayoutGrid }
         : { key: 'library', title: 'Saved Things', Icon: Bookmark });
       defs.push({ key: 'semantic', title: 'Semantic Web Search', Icon: BookSearch });
-      defs.push({ key: 'history', title: 'Action History', Icon: History });
+      defs.push({ key: 'history', title: 'History', Icon: History });
       if (enableWizard) defs.push({ key: 'ai', title: 'The Wizard', Icon: Sparkles });
       return defs;
     }, [side, enableWizard, thingsScope]);
@@ -1775,9 +1775,9 @@ const Panel = memo(
       } else if (leftViewActive === 'federation') {
         // Git-Native Federation view
         panelContent = (
-          // No right padding: UniverseManager scrolls itself and pads its own
-          // content, so the wrapper's would sit outside its scrollbar.
-          <div className="panel-content-inner" style={{ display: 'flex', flexDirection: 'column', height: '100%', paddingRight: 0, overflowX: 'hidden', touchAction: 'pan-y', overscrollBehaviorX: 'none' }}>
+          // No padding: UniverseManager scrolls itself and pads its own
+          // content, so the wrapper's would double it and sit outside its scrollbar.
+          <div className="panel-content-inner" style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: 0, overflowX: 'hidden', touchAction: 'pan-y', overscrollBehaviorX: 'none' }}>
             <UniverseManager />
           </div>
         );

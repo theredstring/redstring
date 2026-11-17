@@ -388,7 +388,6 @@ const UniversesList = ({
     <div ref={containerRef}>
       <PanelSegment
         title="Universes"
-        subtitle="Manage your knowledge spaces"
         isSlim={isHeaderSlim}
         actions={
           <div style={{ display: 'flex', gap: 6 }}>

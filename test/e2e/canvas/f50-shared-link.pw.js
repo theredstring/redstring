@@ -118,7 +118,7 @@ test('F50 Make a Copy makes it yours: editable, saved, and there after a reload'
   await expect.poll(() => registry(page), { timeout: 10_000 }).toContain('atlas');
 
   // The Universes panel shows it, with no onboarding in the way.
-  await expect(page.getByText('Manage your knowledge spaces')).toBeInViewport();
+  await expect(page.getByText('Universes', { exact: true }).first()).toBeInViewport();
 
   // Survives a reload: it really was saved. The save waits for an idle moment.
   await page.waitForTimeout(6_000);
@@ -215,7 +215,7 @@ test('F50 a Dropbox link, as Copy link gives it, opens from a shared link and th
   await makeCopy(page);
   await page.reload();
   await waitForCanvasReady(page);
-  await expect(page.getByText('Manage your knowledge spaces')).not.toBeInViewport();
+  await expect(page.getByText('Universes', { exact: true }).first()).not.toBeInViewport();
   await page.getByRole('button', { name: 'Redstring Menu' }).click();
   await page.getByText('File', { exact: true }).first().hover();
   await page.locator('.submenu-item', { hasText: 'Load from External Link' }).click();

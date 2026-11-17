@@ -52,7 +52,7 @@ describe('LeftHistoryView', () => {
 
   it('starts on the session history, not the repository', () => {
     render(<LeftHistoryView />);
-    expect(screen.getByText('Action History')).toBeTruthy();
+    expect(screen.getByText('History')).toBeTruthy();
     expect(screen.queryByTestId('git-list')).toBeNull();
   });
 

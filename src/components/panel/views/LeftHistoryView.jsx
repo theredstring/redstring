@@ -77,7 +77,7 @@ const LeftHistoryView = ({ gitRequest = null }) => {
     return (
         <div className={`left-history-view ${isSlim ? 'slim' : ''}`} ref={rootRef}>
             <div className="history-header">
-                <h2>{isVersions ? 'Versions' : 'Action History'}</h2>
+                <h2>{isVersions ? 'Versions' : 'History'}</h2>
                 {!isVersions && (
                     <div className="history-stats">
                         {history.length} actions • {currentIndex === -1 ? 'Latest' : `${Math.abs(currentIndex) - 1} steps back`}

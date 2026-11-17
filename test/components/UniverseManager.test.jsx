@@ -70,7 +70,6 @@ describe('UniverseManager', () => {
       await renderLoaded();
 
       expect(screen.getByText('Universes')).toBeTruthy();
-      expect(screen.getByText('Manage your knowledge spaces')).toBeTruthy();
       expect(screen.getByText('Repositories')).toBeTruthy();
       expect(screen.getByText('Accounts & Access')).toBeTruthy();
     });
