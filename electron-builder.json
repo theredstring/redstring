@@ -1,6 +1,7 @@
 {
   "appId": "io.redstring.app",
   "productName": "Redstring",
+  "copyright": "Copyright © 2025-2026 Interfaith Softworks LLC",
   "icon": "electron/icon.png",
   "directories": {
     "output": "dist-electron"

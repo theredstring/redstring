@@ -653,7 +653,7 @@ Redstring is infrastructure for **distributed cognition**, where individual data
 
 ## License
 
-MIT License - See `LICENSE` file for details.
+MIT License, © 2025-2026 Interfaith Softworks LLC. See `LICENSE` for details.
 
 ## Support
 
