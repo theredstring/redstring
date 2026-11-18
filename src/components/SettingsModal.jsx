@@ -1391,17 +1391,6 @@ const SettingsModal = ({ isVisible, onClose }) => {
               />
             </div>
           </div>
-
-          <div style={{
-            marginTop: '20px',
-            paddingTop: '14px',
-            borderTop: `1px solid ${theme.canvas.border}`,
-            fontSize: '0.72rem',
-            color: theme.canvas.textSecondary,
-            lineHeight: '1.6'
-          }}>
-            Everything is connected. Most things can be generalized as a community of components and relations. Redstring makes these connections visible, explorable, and shareable.
-          </div>
         </div>
       )
     }
