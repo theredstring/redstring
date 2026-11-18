@@ -133,7 +133,8 @@ export function buildGroupPieButtons({ mode, group, formulaText, currentFormat, 
   if (isThingGroup) buttons.push({ id: 'group-open-panel', label: 'Open in Panel', icon: NotebookText, action: () => h.onOpenInPanel() });
   if (shownAsFormula && isThingGroup) buttons.push({ id: 'group-combine', label: 'Combine Into Thing', icon: Combine, action: () => h.onCombine() });
   buttons.push(
-    { id: 'group-edit', label: 'Edit Name', icon: Edit3, action: () => h.onEdit() },
+    // Shown as a formula, Edit opens the New Formula box on it (formula/editFormula.js).
+    { id: 'group-edit', label: shownAsFormula ? 'Edit Formula' : 'Edit Name', icon: Edit3, action: () => h.onEdit() },
     { id: 'group-color', label: 'Change Color', icon: Palette, action: (_id, pos) => h.onColor(pos) },
   );
   if (!isThingGroup) buttons.push({ id: 'group-convert', label: 'Convert to Thing-Group', icon: SquarePlus, action: () => h.onConvertToNodeGroup() });

@@ -224,11 +224,12 @@ export function deleteFormulaForWizard({ graphId, ref }) {
  * open one is opened as a Thing-group to be rewritten, its definition saved
  * over, and shown as it was again.
  */
-export function rewriteFormulaForWizard({ graphId, ref, text, title = '', meanings = [], convention = 'math' }) {
+export function rewriteFormulaForWizard({ graphId, ref, text, title = '', meanings = [], convention = 'math', keep = {} }) {
   let state = useGraphStore.getState();
   const f = findFormula(state, graphId, ref);
   if (!f) throw new Error(`No formula "${ref}" in this web`);
-  const bindings = bindingsFor(state, graphId, meanings);
+  // `keep`: bindings already decided (Edit Formula's tied letters), under any meanings given.
+  const bindings = { ...keep, ...bindingsFor(state, graphId, meanings) };
   const readOptions = readOptionsFor(state, bindings, convention);
   const newColor = webColorPicker(state, graphId).next;
   if (f.shown === 'formula') return rewriteFormulaInWeb(graphId, f.groupId, text, readOptions, { title, bindings, newColor });

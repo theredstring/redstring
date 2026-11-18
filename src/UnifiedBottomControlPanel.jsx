@@ -240,6 +240,8 @@ const UnifiedBottomControlPanel = ({
 
   // Group mode props
   selectedGroup, // { id, name, color, memberInstanceIds, linkedNodePrototypeId }
+  // The group Edit button's name (an equation's is Edit Formula).
+  editTitle = null,
   onUngroup,
   onGroupEdit,
   onGroupColor,
@@ -1468,8 +1470,8 @@ const UnifiedBottomControlPanel = ({
                 <div
                   className="piemenu-button"
                   onClick={onGroupEdit}
-                  title="Edit Name"
-                  onMouseEnter={() => triggerActionHover('control-edit-name', 'Edit Name')}
+                  title={editTitle || 'Edit Name'}
+                  onMouseEnter={() => triggerActionHover('control-edit-name', editTitle || 'Edit Name')}
                   onMouseLeave={clearActionHover}
                 >
                   <Edit3 size={iconSize} />

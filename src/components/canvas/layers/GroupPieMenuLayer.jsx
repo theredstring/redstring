@@ -26,7 +26,6 @@ import PieMenu from '../../../PieMenu.jsx';
 import { useGroupPieStore, takeGroupFocusHold, takeGroupReframe } from '../pie/groupPieButtons.js';
 import { useFormulaObjects } from '../formats/formula/useFormulaObjects.js';
 import useGraphStore from '../../../store/graphStore.js';
-import useFormatsStore from '../formats/formatsStore.js';
 import { focusGroupInViewWith, focusOpenedBoxInViewWith } from '../camera/framing.js';
 import { takeOpenedBoxFrame } from '../groups/openedBoxFrame.js';
 
@@ -136,15 +135,12 @@ function GroupPieMenuLayer({
     focusGroupInViewWith(ctx, box, l.anchor, l.buttonCount, zoomAmount);
   }, [groupId, buttons, zoomAmount, cameraCtxRef]);
 
-  // An equation having its name edited on its title (formatsStore.renaming).
-  const renamingFormula = useFormatsStore(s => s.renaming);
   const shown = latchRef.current;
   if (!shown) return null;
 
   const isVisible = live
     && !dragging
     && editingGroupId !== groupId
-    && renamingFormula !== groupId
     && !abstractionCarouselVisible
     && !semanticOrbitActive;
 

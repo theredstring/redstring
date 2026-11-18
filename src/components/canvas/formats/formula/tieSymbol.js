@@ -11,7 +11,7 @@ import { formulaLabelOf } from './formulaChain.js';
 import { isBareSymbol } from './formulaEquations.js';
 
 /** Whether anything in the universe still uses this Thing. */
-function inUse(state, protoId) {
+export function inUse(state, protoId) {
   for (const graph of state.graphs.values()) {
     for (const inst of graph.instances?.values() || []) if (inst.prototypeId === protoId) return true;
     if (graph.definingNodeIds?.includes(protoId)) return true;

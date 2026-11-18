@@ -37,7 +37,8 @@ import { condenseFormula } from '../formats/formula/condenseFormula.js';
 import { copyFormula } from '../formats/formula/copyFormula.js';
 import { deleteNodeGroup } from '../groups/deleteNodeGroup.js';
 import { useGroupFormulaText, groupFormats, FORMAT_LABELS } from '../formats/groupFormats.js';
-import useFormatsStore, { showFormatInPlace, showAsThings, setNotation, setFormulaNames, selectStandard, startFormulaRename } from '../formats/formatsStore.js';
+import useFormatsStore, { showFormatInPlace, showAsThings, setNotation, setFormulaNames, selectStandard, openFormulaComposer } from '../formats/formatsStore.js';
+import { formulaEditOf } from '../formats/formula/editFormula.js';
 import { Scaling, Shapes, Sigma, Superscript, WholeWord } from 'lucide-react';
 import { buildGroupPieButtons, setGroupPieButtons, reframeGroup } from '../pie/groupPieButtons.js';
 import {
@@ -274,9 +275,9 @@ export default function ControlPanelsHost({ ctx }) {
 
   const handleGroupPanelEdit = useCallback(() => {
     if (!selectedGroup) return;
-    // Shown as a formula, the equation draws its own title, and edits its name there.
-    const viewed = activeGraphId ? projectGraphView(useGraphStore.getState(), activeGraphId)?.groups?.get(selectedGroup.id) : null;
-    if (viewed?.format === 'formula') { startFormulaRename(selectedGroup.id); return; }
+    // Shown as a formula: Edit Formula, the New Formula box opened on it as it was made.
+    const edit = formulaEditOf(useGraphStore.getState(), activeGraphId, selectedGroup.id);
+    if (edit) { openFormulaComposer(activeGraphId, null, edit); return; }
     // Start inline editing; a node-group's prototype owns the name, so seed from it.
     const linkedPrototype = selectedGroup.linkedNodePrototypeId
       ? nodePrototypesMap.get(selectedGroup.linkedNodePrototypeId)
@@ -734,7 +735,7 @@ export default function ControlPanelsHost({ ctx }) {
               customContent: currentFormat === 'formula'
                 ? <FormatPanelPreview groupId={groupPanelTarget.id} />
                 : undefined,
-              ...(currentFormat === 'formula' ? { kindLabel: 'Equation' } : {}),
+              ...(currentFormat === 'formula' ? { kindLabel: 'Equation', editTitle: 'Edit Formula' } : {}),
             } : {})}
           />
         )

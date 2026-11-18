@@ -144,7 +144,7 @@ export default function FormatsHost({ suppressed = false }) {
   return (
     <>
       <FormatOffer candidate={offer} />
-      {composing && !readOnly && <FormulaComposer key={`${composing.at.x},${composing.at.y}`} />}
+      {composing && !readOnly && <FormulaComposer key={composing.edit ? `edit:${composing.edit.groupId}` : `${composing.at?.x},${composing.at?.y}`} />}
     </>
   );
 }

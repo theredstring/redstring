@@ -13,7 +13,8 @@
  * it is added: until then the box opens on it in place of the list
  * (StarterOffer), its Custom equations a choice away in the header; after,
  * it is offered only from the Starter choice there, as Settings → Data →
- * Formula Starter does.
+ * Formula Starter does. Opened by Edit Formula (editFormula.js), it opens on
+ * the equation, typed and named as it was made, and saving writes it over.
  */
 import { useMemo, useRef, useState } from 'react';
 import UnifiedSelector from '../../../../UnifiedSelector';
@@ -21,6 +22,7 @@ import useGraphStore from '../../../../store/graphStore.js';
 import { NODE_DEFAULT_COLOR } from '../../../../constants';
 import { chainFromText, chainText, tokensOf } from './formulaChain.js';
 import { buildFormulaInWeb } from './buildFormula.js';
+import { saveFormulaEdit } from './editFormula.js';
 import { placeEquation } from './formulaWizard.js';
 import { useUniverseEquations } from './universeEquations.js';
 import FormulaTokens from './FormulaTokens.jsx';
@@ -74,9 +76,11 @@ function ConventionSlider({ value, onChange }) {
 export default function FormulaComposer() {
   const convention = useFormatsStore(s => s.convention);
   const standard = useFormatsStore(selectStandard);
-  const [draft, setDraft] = useState('');
+  // Opened by Edit Formula: the equation it writes over, typed and named as it was made.
+  const edit = useFormatsStore(s => s.composing?.edit || null);
+  const [draft, setDraft] = useState(() => edit?.text || '');
   // The equation's name; left empty, it is named by its formula.
-  const [title, setTitle] = useState('');
+  const [title, setTitle] = useState(() => edit?.title || '');
   const color = useRef(NODE_DEFAULT_COLOR);
   const inputRef = useRef(null);
   const knownNames = useMemo(knownNamesNow, []);
@@ -119,7 +123,15 @@ export default function FormulaComposer() {
   const add = ({ name }) => {
     const composing = useFormatsStore.getState().composing;
     if (!composing) return;
-    buildFormulaInWeb(name, composing.graphId, composing.at, readOptions, { color: color.current, title });
+    if (composing.edit) {
+      try {
+        saveFormulaEdit(composing.graphId, composing.edit, name, title, readOptions);
+      } catch (err) {
+        console.warn('[FormulaComposer] Could not save the edit', err);
+      }
+    } else {
+      buildFormulaInWeb(name, composing.graphId, composing.at, readOptions, { color: color.current, title });
+    }
     closeFormulaComposer();
   };
 
@@ -139,14 +151,15 @@ export default function FormulaComposer() {
       mode="formula-creation"
       className="formula-selector"
       isVisible
-      title="Write or choose a Formula"
+      title={edit ? 'Edit Formula' : 'Write or choose a Formula'}
+      initialName={edit?.text || ''}
       placeholder={PLACEHOLDER[convention]}
       autoFocus
       inputRef={inputRef}
       onNameChange={setDraft}
       onColorChange={(next) => { color.current = next; }}
       canSubmit={!!parsed.chain}
-      submitTitle="Add to Web"
+      submitTitle={edit ? 'Save' : 'Add to Web'}
       onSubmit={add}
       onClose={closeFormulaComposer}
       headerAside={(
@@ -155,12 +168,12 @@ export default function FormulaComposer() {
           onChange={(next) => { setConvention(next); inputRef.current?.focus(); }}
         />
       )}
-      headerContent={tokens ? (
+      headerContent={tokens || edit ? (
         <label className="formula-name">
           Name
           <input
             value={title}
-            placeholder={chainText(parsed.chain)}
+            placeholder={parsed.chain ? chainText(parsed.chain) : (edit?.text || '')}
             spellCheck={false}
             onChange={(e) => setTitle(e.target.value)}
           />
@@ -177,7 +190,7 @@ export default function FormulaComposer() {
       ) : (
         <>
           {parsed.error && <div className="formula-preview-error">{parsed.error}</div>}
-          {offering
+          {edit ? null : offering
             ? <StarterOffer first={first} onAdded={added} />
             : <BankList bank={bank} browse={browse} matches={matches} standard={standard} onPick={pick} />}
         </>
