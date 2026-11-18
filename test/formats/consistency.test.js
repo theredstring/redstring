@@ -240,7 +240,14 @@ describe('Format Consistency', () => {
     expect(normalizedImported.edges).toEqual(normalizedOriginal.edges);
     expect(normalizedImported.openGraphIds).toEqual(normalizedOriginal.openGraphIds);
     expect(normalizedImported.activeGraphId).toEqual(normalizedOriginal.activeGraphId);
-    expect(normalizedImported.expandedGraphIds).toEqual(normalizedOriginal.expandedGraphIds);
+    // The panel's tabs, expanded webs and connection names are the person's
+    // view, not written: a file opens on the home tab, nothing expanded.
+    expect(normalizedImported.expandedGraphIds).toEqual([]);
+    expect(normalizedImported.rightPanelTabs).toEqual([{ type: 'home', isActive: true }]);
+    expect('showConnectionNames' in importedState).toBe(false);
+    expect(redstringData.userInterface).not.toHaveProperty('redstring:rightPanelTabs');
+    expect(redstringData.userInterface).not.toHaveProperty('redstring:expandedGraphIds');
+    expect(redstringData.userInterface).not.toHaveProperty('redstring:showConnectionNames');
     expect(normalizedImported.savedNodeIds).toEqual(normalizedOriginal.savedNodeIds);
     expect(normalizedImported.savedGraphIds).toEqual(normalizedOriginal.savedGraphIds);
   });

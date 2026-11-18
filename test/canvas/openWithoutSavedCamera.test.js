@@ -208,3 +208,66 @@ describe('loading a universe', () => {
     expect(useGraphStore.getState().activeGraphId).toBe('w1');
   });
 });
+
+describe('the panel is the person\'s, not the universe\'s', () => {
+  const panelState = () => ({
+    ...universeState(),
+    expandedGraphIds: new Set(['w1', 'w2']),
+    rightPanelTabs: [{ type: 'home', isActive: false }, { type: 'node', nodeId: 'p1', isActive: true }],
+    showConnectionNames: false,
+  });
+  const load = (state) => useGraphStore.getState().loadUniverseFromFile(exportToRedstring(state));
+
+  beforeEach(() => {
+    useGraphStore.setState({ graphs: new Map(), graphViews: new Map(), openGraphIds: [], activeGraphId: null, activeDefinitionNodeId: null,
+      expandedGraphIds: new Set(), rightPanelTabs: [{ type: 'home', isActive: true }], _isLoadingUniverse: false });
+  });
+
+  it('writes no tabs, expanded webs or connection-name setting', () => {
+    const { '@context': _vocabulary, ...document } = exportToRedstring(panelState());
+    expect(JSON.stringify(document)).not.toMatch(/rightPanelTabs|expandedGraphIds|showConnectionNames|redstring:expanded"/);
+  });
+
+  it('reads an older file on the home tab with nothing expanded, whatever it says', () => {
+    const data = exportToRedstring(panelState());
+    data.userInterface['redstring:rightPanelTabs'] = [{ type: 'node', nodeId: 'p1', isActive: true }];
+    data.userInterface['redstring:expandedGraphIds'] = ['w1'];
+    data.userInterface['redstring:showConnectionNames'] = false;
+    const { storeState } = importFromRedstring(data);
+    expect(storeState.rightPanelTabs).toEqual([{ type: 'home', isActive: true }]);
+    expect(storeState.expandedGraphIds.size).toBe(0);
+    expect('showConnectionNames' in storeState).toBe(false);
+  });
+
+  it('does not count a tab, an expanded web or the connection names as a change to save', () => {
+    const state = universeState();
+    expect(generateStateHash(panelState())).toBe(generateStateHash(state));
+  });
+
+  it('keeps your tabs and expanded webs when the same universe reloads, minus what is gone', () => {
+    load(universeState());
+    useGraphStore.setState({
+      expandedGraphIds: new Set(['w1', 'w3']),
+      rightPanelTabs: [{ type: 'home', isActive: false }, { type: 'node', nodeId: 'p1', isActive: true }, { type: 'node', nodeId: 'def-w3', isActive: false }],
+    });
+    const pulled = universeState();
+    pulled.graphs.delete('w3');
+    pulled.nodePrototypes.delete('def-w3');
+    load(pulled);
+    const st = useGraphStore.getState();
+    expect([...st.expandedGraphIds]).toEqual(['w1']);
+    expect(st.rightPanelTabs).toEqual([{ type: 'home', isActive: false }, { type: 'node', nodeId: 'p1', isActive: true }]);
+  });
+
+  it('opens another universe on the home tab', () => {
+    load(universeState());
+    useGraphStore.setState({ rightPanelTabs: [{ type: 'home', isActive: false }, { type: 'node', nodeId: 'p1', isActive: true }], expandedGraphIds: new Set(['w1']) });
+    const other = universeState();
+    other.graphs = new Map([...other.graphs].map(([id, g]) => [`x-${id}`, { ...g, id: `x-${id}` }]));
+    other.openGraphIds = ['x-w1'];
+    load(other);
+    const st = useGraphStore.getState();
+    expect(st.rightPanelTabs).toEqual([{ type: 'home', isActive: true }]);
+    expect(st.expandedGraphIds.size).toBe(0);
+  });
+});

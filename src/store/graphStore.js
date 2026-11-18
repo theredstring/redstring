@@ -9936,6 +9936,25 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
           edges: storeState.edges?.size || 0
         });
 
+        // The right panel's tabs and which webs are expanded are the person's,
+        // never in the file. Reloading the universe that is already open (a Git
+        // pull, a shared universe catching up) keeps them; the sanitize below
+        // drops tabs whose Thing or web is gone. Another universe shares no web
+        // ids, so it opens on the home tab.
+        try {
+          const incoming = storeState.graphs;
+          const sameUniverse = incoming instanceof Map && currentState.graphs instanceof Map
+            && [...currentState.graphs.keys()].some((id) => incoming.has(id));
+          if (sameUniverse) {
+            if (Array.isArray(currentState.rightPanelTabs) && currentState.rightPanelTabs.length > 0) {
+              storeState.rightPanelTabs = currentState.rightPanelTabs.map((tab) => ({ ...tab }));
+            }
+            storeState.expandedGraphIds = new Set([...(currentState.expandedGraphIds || [])].filter((id) => incoming.has(id)));
+          }
+        } catch (e) {
+          console.warn('[graphStore] Failed to keep the panel during load:', e);
+        }
+
         sanitizeStoreStateReferences(storeState);
 
         // Upgrade: equations whose definitions lost their parentheses get them back.

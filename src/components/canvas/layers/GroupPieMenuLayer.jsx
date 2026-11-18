@@ -31,6 +31,9 @@ import { takeOpenedBoxFrame } from '../groups/openedBoxFrame.js';
 
 // PieMenu's BUBBLE_SIZE, before scaling.
 const BUBBLE_SIZE = 120;
+// A group or Thing-group framed by its title on selection stops a little short
+// of a tight fit on it (an equation, framed whole, fits as it is).
+const TITLE_FRAME_ZOOM = 0.85;
 
 
 /**
@@ -119,7 +122,10 @@ function GroupPieMenuLayer({
     const whole = groupBoxOf(groupId, l.groupLayouts, l.formulaObjects);
     // Just opened: framed by how big it is, its title and menu always in view.
     if (opened && box && whole) focusOpenedBoxInViewWith(ctx, box, whole, l.anchor, l.buttonCount, zoomAmount);
-    else if (box) focusGroupInViewWith(ctx, box, l.anchor, l.buttonCount, zoomAmount);
+    else if (box) {
+      const byTitle = !l.formulaObjects.objects.some(o => o.groupId === groupId);
+      focusGroupInViewWith(ctx, box, l.anchor, l.buttonCount, zoomAmount * (byTitle ? TITLE_FRAME_ZOOM : 1));
+    }
   }, [groupId, live, focusEnabled, zoomAmount, cameraCtxRef]);
 
   // Shown another way (formula or Things, names or symbols): framed again as

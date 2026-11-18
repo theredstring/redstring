@@ -228,14 +228,10 @@ This approach enables:
     }
   },
   
+  // The person's view (camera, active web, panel tabs, expanded webs,
+  // connection names) is never written; a universe opens on its first open web.
   "userInterface": {
     "openGraphIds": ["main-workspace"],
-    "activeGraphId": "main-workspace", 
-    "activeDefinitionNodeId": null,
-    "expandedGraphIds": ["main-workspace"],
-    "rightPanelTabs": [
-      { "type": "home", "isActive": true }
-    ],
     "savedNodeIds": ["carbon-pricing"]
   },
   

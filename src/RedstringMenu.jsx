@@ -11,6 +11,7 @@ import Broom from './components/shared/broomIcon.js';
 import useReadOnlyUniverse, { selectReadOnlyOpen } from './store/readOnlyUniverse.js';
 import { READ_ONLY_HINT } from './components/canvas/pie/readOnlyButtons.js';
 import { requestRefresh } from './components/canvas/dialogs/refresh.js';
+import { isDebugSettingsUnlocked } from './utils/debugUnlock.js';
 
 // Undo/Redo take Cmd or Ctrl on every platform (see useCanvasKeyboard), but the
 // menu only has room to name one. Name the one the platform's users reach for.
@@ -807,6 +808,8 @@ const RedstringMenu = ({
 
                         <div className="submenu-divider" style={{ margin: '8px 0', borderTop: '1px solid #444', opacity: 0.3 }} />
 
+                        {/* Only while the Debug settings are showing. */}
+                        {isDebugSettingsUnlocked() && (
                         <div
                           className="submenu-item"
                           tabIndex={0}
@@ -823,6 +826,7 @@ const RedstringMenu = ({
                           <Activity size={14} style={{ marginRight: '8px', minWidth: '14px', flexShrink: 0 }} />
                           Force Simulation Tuner
                         </div>
+                        )}
 
                         <div
                           className="submenu-item"

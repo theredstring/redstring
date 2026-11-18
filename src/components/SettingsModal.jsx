@@ -12,7 +12,10 @@ import PanelIconButton from './shared/PanelIconButton.jsx';
 import { isDebugSettingsUnlocked, setDebugSettingsUnlocked } from '../utils/debugUnlock.js';
 import { useShellPreference, setShellPreference } from '../hooks/useMobileLandscapeShell.js';
 import { DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_RING_WIDTH, CONNECTION_LABEL_RING_WIDTH_MIN, CONNECTION_LABEL_RING_WIDTH_MAX, DEFAULT_CONNECTION_LABEL_MOVE_FADE, DEFAULT_CONNECTION_LABEL_TRUNCATE, DEFAULT_CONNECTION_LABEL_SPRITES, DEFAULT_EDGE_GLOW_MODE, DEFAULT_EDGE_GLOW_INTENSITY, EDGE_GLOW_INTENSITY_MIN, EDGE_GLOW_INTENSITY_MAX, DEFAULT_LIFTED_THING_SHADOW } from '../utils/colorUtils.js';
+import { openExternalUrl } from '../utils/safeUrl.js';
 import './ModalChrome.css';
+
+const PRIVACY_POLICY_URL = 'https://redstring.net/privacy';
 
 /**
  * How the Debug page is reached: five taps on About, either on the sidebar item
@@ -1371,6 +1374,19 @@ const SettingsModal = ({ isVisible, onClose }) => {
                   onClose?.();
                   window.dispatchEvent(new Event('openHelpModal'));
                 }}
+                style={{ padding: '5px 12px', flexShrink: 0 }}
+              />
+            </div>
+            <div className="settings-row">
+              <div className="settings-row-label">
+                Privacy Policy
+                <div className="settings-row-description">What Redstring keeps, and where your data goes.</div>
+              </div>
+              <PanelIconButton
+                label="Open"
+                labelFontSize={11}
+                variant="outline"
+                onClick={() => openExternalUrl(PRIVACY_POLICY_URL)}
                 style={{ padding: '5px 12px', flexShrink: 0 }}
               />
             </div>

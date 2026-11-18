@@ -16,6 +16,7 @@ import { webFacts } from '../../../wizard/prompts/facts.js';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
 import { togglePieMenuColorPicker } from '../colorPickers/colorPickers.js';
 import { requestRefresh } from '../dialogs/refresh.js';
+import { isDebugSettingsUnlocked } from '../../../utils/debugUnlock.js';
 import { openFormulaComposer } from '../formats/formatsStore.js';
 import { selectPasted } from '../formats/formula/formulaSelection.js';
 
@@ -91,13 +92,16 @@ export function buildCanvasContextMenuOptions(clientX, clientY, ctx) {
         condenseGraphNodes();
       }
     },
-    {
+    // A tuning tool, not a verb on the web: only while the Debug settings are
+    // showing. Read here, at right-click time, so unlocking takes effect on
+    // the next menu without a re-render.
+    ...(isDebugSettingsUnlocked() ? [{
       label: 'Force Simulation',
       icon: <Activity size={14} />,
       action: () => {
         setForceSimModalVisible(true);
       }
-    },
+    }] : []),
     // Last, and the only one here that is not about the web: a reload (it
     // asks first; see ../dialogs/refresh.js).
     // It was the Redstring menu's File → Refresh, and below the width where

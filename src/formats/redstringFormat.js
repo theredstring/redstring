@@ -708,10 +708,12 @@ const buildSummaryEntry = (graph, graphId, inputs, now) => {
  * autosave. Add a new persisted field here AND to the export block below AND
  * to the import hydration, or it round-trips lossily.
  *
- * `activeGraphId` and `activeDefinitionNodeId` are listed but not written: a
- * universe opens on its first open web. They stay so undo restores them with
- * the cascades of deleting a web (historyPolicy.js), and a shared merge keeps
- * the person on their own web (syncMerge.js).
+ * Listed but not written, because they are the person's view and not the
+ * universe: `activeGraphId` and `activeDefinitionNodeId` (a universe opens on
+ * its first open web), `expandedGraphIds`, `rightPanelTabs` and
+ * `showConnectionNames` (a device preference, kept in localStorage). They stay
+ * so undo restores them with the cascades of deleting a web (historyPolicy.js),
+ * and a shared merge keeps the person's own view (syncMerge.js).
  */
 export const PERSISTED_STORE_KEYS = [
   'graphs',
@@ -843,7 +845,7 @@ const SCHEME_IRI = 'urn:redstring:scheme';
  * last). A pure function of its arguments, so the save worker can reuse its
  * bytes while they're unchanged (exportCache.js).
  */
-const exportGraphEntry = (graph, graphId, expanded) => {
+const exportGraphEntry = (graph, graphId) => {
   // Export instances as positioned individuals with rdf:type relationships
   const spatialInstances = {};
   if (graph.instances) {
@@ -978,12 +980,8 @@ const exportGraphEntry = (graph, graphId, expanded) => {
       }
       return groupsObj;
     })(),
-    
-    // UI state for this graph. Which web is active is not written: a universe
-    // opens on the first of its open webs.
-    "redstring:visualProperties": {
-      "redstring:expanded": expanded
-    }
+    // No view state for the web: which web is active and whether it is
+    // expanded in the panel are the person's, not the universe's.
   };
   // Quarantined unknown fields ride back out verbatim (D1/P1.3)
   if (graph._preserved) {
@@ -1369,11 +1367,8 @@ export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT
       edges = new Map(),
       edgePrototypes = new Map(),
       openGraphIds = [],
-      expandedGraphIds = new Set(),
-      rightPanelTabs = [],
       savedNodeIds = new Set(),
       savedGraphIds = new Set(),
-      showConnectionNames = false,
       wizardPlansByConversation = {},
       wizardGoalsByConversation = {},
       mergeDismissals = {}
@@ -1442,10 +1437,9 @@ export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT
   // v4 with each web's connections inside it (D10, P3.1).
   const spatialGraphs = {};
   graphs.forEach((graph, graphId) => {
-    const expanded = expandedGraphIds.has(graphId);
     const owned = edgesByGraph.get(String(graphId)) || [];
     const build = () => {
-      const entry = exportGraphEntry(graph, graphId, expanded);
+      const entry = exportGraphEntry(graph, graphId);
       if (emitV4) {
         const graphEdges = {};
         for (const [id, edge, sourcePrototypeId, destinationPrototypeId, predicatePrototypeId] of owned) {
@@ -1455,7 +1449,7 @@ export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT
       }
       return entry;
     };
-    const inputs = [graph, expanded];
+    const inputs = [graph];
     for (const item of owned) inputs.push(...item);
     spatialGraphs[graphId] = piece('graph', graphId, inputs, build);
   });
@@ -1559,15 +1553,14 @@ export const exportToRedstring = (storeState, userDomain = null, { emitV4 = EMIT
       "redstring:canvasSize": { "width": 4000, "height": 3000 }
     },
     
-    // User interface state (preserved for application functionality)
+    // The universe's own interface state: the webs it opens on, bookmarks,
+    // the wizard's plans. The right panel's tabs, which webs are expanded and
+    // whether connection names show are the person's view, never written.
     "userInterface": {
       "@type": "redstring:UserInterfaceState",
       "redstring:openGraphIds": [...openGraphIds],
-      "redstring:expandedGraphIds": [...expandedGraphIds],
-      "redstring:rightPanelTabs": [...rightPanelTabs],
       "redstring:savedNodeIds": [...savedNodeIds],
       "redstring:savedGraphIds": [...savedGraphIds],
-      "redstring:showConnectionNames": !!showConnectionNames,
       "redstring:wizardPlansByConversation": (typeof wizardPlansByConversation === 'object' && wizardPlansByConversation) ? wizardPlansByConversation : {},
       "redstring:wizardGoalsByConversation": (typeof wizardGoalsByConversation === 'object' && wizardGoalsByConversation) ? wizardGoalsByConversation : {},
       // "these two things are not the same" — a judgement about the universe,
@@ -2319,11 +2312,8 @@ export const importFromRedstring = (redstringData, storeActions) => {
     // Extract UI state from either new format or legacy format
     const uiState = userInterface || {};
     const extractedOpenGraphIds = uiState['redstring:openGraphIds'] || uiState.openGraphIds || [];
-    const extractedExpandedGraphIds = uiState['redstring:expandedGraphIds'] || uiState.expandedGraphIds || [];
-    const extractedRightPanelTabs = uiState['redstring:rightPanelTabs'] || uiState.rightPanelTabs || [];
     const extractedSavedNodeIds = uiState['redstring:savedNodeIds'] || uiState.savedNodeIds || [];
     const extractedSavedGraphIds = uiState['redstring:savedGraphIds'] || uiState.savedGraphIds || [];
-    const extractedShowConnectionNames = uiState['redstring:showConnectionNames'] ?? uiState.showConnectionNames ?? true;
     const extractedWizardPlansByConversation = uiState['redstring:wizardPlansByConversation'] || {};
     const extractedWizardGoalsByConversation = uiState['redstring:wizardGoalsByConversation'] || {};
     const extractedMergeDismissals = uiState['redstring:mergeDismissals'] || uiState.mergeDismissals || {};
@@ -2349,11 +2339,13 @@ export const importFromRedstring = (redstringData, storeActions) => {
       // The universe opens on its first open web. An active web saved by an
       // older version is not read.
       ...openingWeb(graphsMap, extractedOpenGraphIds),
-      expandedGraphIds: new Set(Array.isArray(extractedExpandedGraphIds) ? extractedExpandedGraphIds : []),
-      rightPanelTabs: Array.isArray(extractedRightPanelTabs) ? extractedRightPanelTabs : [],
+      // The panel's tabs and expanded webs saved by an older version are not
+      // read: they are the person's view. A reload of the universe already
+      // open keeps the current ones (loadUniverseFromFile).
+      expandedGraphIds: new Set(),
+      rightPanelTabs: [{ type: 'home', isActive: true }],
       savedNodeIds: new Set(Array.isArray(extractedSavedNodeIds) ? extractedSavedNodeIds : []),
       savedGraphIds: new Set(Array.isArray(extractedSavedGraphIds) ? extractedSavedGraphIds : []),
-      showConnectionNames: !!extractedShowConnectionNames,
       wizardPlansByConversation: extractedWizardPlansByConversation,
       wizardGoalsByConversation: extractedWizardGoalsByConversation,
       mergeDismissals: (extractedMergeDismissals && typeof extractedMergeDismissals === 'object' && !Array.isArray(extractedMergeDismissals))
@@ -2368,26 +2360,6 @@ export const importFromRedstring = (redstringData, storeActions) => {
     // reset it to "now" (see export metadata.created).
     if (processedData.metadata?.created) {
       storeState.universeCreatedAt = processedData.metadata.created;
-    }
-
-    const importedTabs = extractedRightPanelTabs;
-
-    // If no tabs are loaded or the array is empty, default to the home tab.
-    if (!Array.isArray(importedTabs) || importedTabs.length === 0) {
-      storeState.rightPanelTabs = [{ type: 'home', isActive: true }];
-    } else {
-      // Ensure at least one tab is active
-      const isAnyTabActive = importedTabs.some(tab => tab && tab.isActive);
-      if (!isAnyTabActive && importedTabs.length > 0) {
-        // Find the home tab and make it active, or the first tab as a fallback
-        const homeTabIndex = importedTabs.findIndex(tab => tab && tab.type === 'home');
-        if (homeTabIndex > -1) {
-          importedTabs[homeTabIndex].isActive = true;
-        } else {
-          importedTabs[0].isActive = true;
-        }
-      }
-      storeState.rightPanelTabs = importedTabs;
     }
 
     // Links, image sources and colours from the file: drop the ones no sink

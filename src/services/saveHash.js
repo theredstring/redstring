@@ -10,9 +10,10 @@
  * changed the hash and were NEVER saved.
  *
  * Exclusions (deliberate):
- * - `panOffset`/`zoomLevel` per graph, `activeGraphId`, `activeDefinitionNodeId`
- *   — where the person is looking is not written to the file, so moving the
- *   camera or switching webs never saves.
+ * - `panOffset`/`zoomLevel` per graph, `activeGraphId`, `activeDefinitionNodeId`,
+ *   `rightPanelTabs`, `expandedGraphIds`, `showConnectionNames` — the person's
+ *   view is not written to the file, so moving the camera, switching webs or
+ *   tabs, expanding a web or toggling connection names never saves.
  * - `imageSrc`/`thumbnailSrc` — multi-MB data URLs OOM V8 when stringified;
  *   replaced with a sampled fingerprint so image *changes* are still detected.
  */
@@ -103,11 +104,8 @@ export const buildContentState = (state) => ({
  */
 const buildPersistedUiState = (state) => ({
   openGraphIds: Array.isArray(state.openGraphIds) ? state.openGraphIds : [],
-  expandedGraphIds: state.expandedGraphIds || [],
   savedNodeIds: state.savedNodeIds || [],
   savedGraphIds: state.savedGraphIds || [],
-  showConnectionNames: !!state.showConnectionNames,
-  rightPanelTabs: Array.isArray(state.rightPanelTabs) ? state.rightPanelTabs : [],
   wizardPlansByConversation: state.wizardPlansByConversation || {},
   wizardGoalsByConversation: state.wizardGoalsByConversation || {},
   // "Not the same Thing" rulings: in the file, and shared (syncMerge merges them).

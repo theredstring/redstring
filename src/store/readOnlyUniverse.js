@@ -15,7 +15,7 @@
 import { create } from 'zustand';
 import { PERSISTED_STORE_KEYS } from '../formats/redstringFormat.js';
 
-/** Saved with the universe, but only where you are in it, or a preference. */
+/** Where you are in the universe, or a preference: not the document (only the open webs are written). */
 const NOT_THE_DOCUMENT = new Set([
   'openGraphIds',
   'activeGraphId',
