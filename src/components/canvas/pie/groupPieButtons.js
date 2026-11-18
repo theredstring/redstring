@@ -128,8 +128,10 @@ export function buildGroupPieButtons({ mode, group, formulaText, currentFormat, 
     // Its size, in a Thing's steps (M → L → XL → XS → S → M), saved as group.formulaSize
     // (opened in place, as its node's size).
     buttons.push({ id: 'group-size', label: `Size: ${nodeSizeLabel(group.formulaSize ?? 1)}`, icon: Scaling, action: () => h.cycleFormulaSize() });
-    if (isThingGroup) buttons.push({ id: 'group-combine', label: 'Combine Into Thing', icon: Combine, action: () => h.onCombine() });
   }
+  // An equation's Thing, in the panel: before Combine, as a Thing-group has it.
+  if (isThingGroup) buttons.push({ id: 'group-open-panel', label: 'Open in Panel', icon: NotebookText, action: () => h.onOpenInPanel() });
+  if (shownAsFormula && isThingGroup) buttons.push({ id: 'group-combine', label: 'Combine Into Thing', icon: Combine, action: () => h.onCombine() });
   buttons.push(
     { id: 'group-edit', label: 'Edit Name', icon: Edit3, action: () => h.onEdit() },
     { id: 'group-color', label: 'Change Color', icon: Palette, action: (_id, pos) => h.onColor(pos) },

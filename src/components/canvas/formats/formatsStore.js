@@ -10,6 +10,7 @@
 import { create } from 'zustand';
 import useGraphStore from '../../../store/graphStore.js';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
+import { projectGraphView } from '../../../core/openDefinitions.js';
 import { NODE_DEFAULT_COLOR } from '../../../constants.js';
 import { computeFormulaObjects } from './formula/formulaObjects.js';
 import { withToFormulaMorph, withToThingsMorph } from './formula/formulaSwapMorph.js';
@@ -52,7 +53,28 @@ const useFormatsStore = create(() => ({
   dismissed: new Set(),
   /** The "New Formula" composer: { graphId, at: {x, y} } in canvas coordinates, or null. */
   composing: null,
+  /**
+   * The equation whose name is being edited on its title (Edit Name on a
+   * formula), by group id, or null. A formula draws its own title, so it holds
+   * its own rename (formula/FormulaObjectsLayer) rather than the canvas's.
+   */
+  renaming: null,
 }));
+
+/** Edit a formula's name on its title. */
+export const startFormulaRename = (groupId) => useFormatsStore.setState({ renaming: groupId || null });
+/** Stop editing it; `name`, when given and changed, is saved as the equation's name. */
+export function endFormulaRename(groupId, name = null) {
+  if (useFormatsStore.getState().renaming !== groupId) return;
+  useFormatsStore.setState({ renaming: null });
+  const next = typeof name === 'string' ? name.trim() : '';
+  if (!next) return;
+  const store = useGraphStore.getState();
+  const graphId = store.activeGraphId;
+  const group = graphId ? projectGraphView(store, graphId)?.groups?.get(groupId) : null;
+  if (!group || group.name === next) return;
+  store.updateGroup(graphId, groupId, (draft) => { draft.name = next; });
+}
 
 export const dismissFormatOffer = (key) => useFormatsStore.setState((s) => {
   if (s.dismissed.has(key)) return s;

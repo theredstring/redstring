@@ -7,7 +7,8 @@
  * universeEquations.js: by discipline as the bank files them, and Custom),
  * the ones whose titles match the words, or a formula, read token by token,
  * which Enter or + builds as Things at the spot that was right-clicked
- * (buildFormula.js), shown as its formula. Picking one places that equation
+ * (buildFormula.js), shown as its formula, named by the Name field under the
+ * title (by its formula when that is left empty). Picking one places that equation
  * there (formulaWizard's placeEquation). The bank itself is listed only once
  * it is added: until then the box opens on it in place of the list
  * (StarterOffer), its Custom equations a choice away in the header; after,
@@ -18,7 +19,7 @@ import { useMemo, useRef, useState } from 'react';
 import UnifiedSelector from '../../../../UnifiedSelector';
 import useGraphStore from '../../../../store/graphStore.js';
 import { NODE_DEFAULT_COLOR } from '../../../../constants';
-import { chainFromText, tokensOf } from './formulaChain.js';
+import { chainFromText, chainText, tokensOf } from './formulaChain.js';
 import { buildFormulaInWeb } from './buildFormula.js';
 import { placeEquation } from './formulaWizard.js';
 import { useUniverseEquations } from './universeEquations.js';
@@ -74,6 +75,8 @@ export default function FormulaComposer() {
   const convention = useFormatsStore(s => s.convention);
   const standard = useFormatsStore(selectStandard);
   const [draft, setDraft] = useState('');
+  // The equation's name; left empty, it is named by its formula.
+  const [title, setTitle] = useState('');
   const color = useRef(NODE_DEFAULT_COLOR);
   const inputRef = useRef(null);
   const knownNames = useMemo(knownNamesNow, []);
@@ -116,7 +119,7 @@ export default function FormulaComposer() {
   const add = ({ name }) => {
     const composing = useFormatsStore.getState().composing;
     if (!composing) return;
-    buildFormulaInWeb(name, composing.graphId, composing.at, readOptions,{ color: color.current });
+    buildFormulaInWeb(name, composing.graphId, composing.at, readOptions, { color: color.current, title });
     closeFormulaComposer();
   };
 
@@ -152,7 +155,17 @@ export default function FormulaComposer() {
           onChange={(next) => { setConvention(next); inputRef.current?.focus(); }}
         />
       )}
-      headerContent={!tokens && !matches && !first ? (
+      headerContent={tokens ? (
+        <label className="formula-name">
+          Name
+          <input
+            value={title}
+            placeholder={chainText(parsed.chain)}
+            spellCheck={false}
+            onChange={(e) => setTitle(e.target.value)}
+          />
+        </label>
+      ) : !matches && !first ? (
         <BankChoices
           bank={bank}
           browse={choices}

@@ -134,6 +134,35 @@ button.format-pill:disabled {
   font-size: 11px;
 }
 
+/* A formula typed: its name, under the box's title. */
+.formula-name {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.formula-name input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 12px;
+  border: 1.5px solid maroon;
+  border-radius: 999px;
+  background: transparent;
+  color: maroon;
+  font-family: 'EmOne', sans-serif;
+  font-size: 13px;
+  font-weight: bold;
+  outline: none;
+}
+
+.formula-name input::placeholder {
+  color: maroon;
+  opacity: 0.35;
+}
+
 /* A formula typed: the box shows it, large, in its middle. */
 .formula-preview {
   display: flex;

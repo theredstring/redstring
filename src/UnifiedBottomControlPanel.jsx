@@ -1440,7 +1440,19 @@ const UnifiedBottomControlPanel = ({
                 {isFormat && Array.isArray(formatToggles) && formatToggles.slice(0, 1).map(renderFormatToggle)}
                 {formatSwapButton}
                 {isFormat && Array.isArray(formatToggles) && formatToggles.slice(1).map(renderFormatToggle)}
-                {/* A formula follows a Thing-group's order: Combine, Edit, Color, Ungroup, Copy, Delete. */}
+                {/* A formula follows a Thing-group's order: Open in Panel, Combine, Edit, Color, Ungroup, Copy, Delete. */}
+                {isFormat && selectedGroup?.linkedNodePrototypeId && onOpenNodePrototypeInPanel && (
+                  <div
+                    className="piemenu-button"
+                    data-view-only
+                    onClick={openInPanelAndDismiss(onOpenNodePrototypeInPanel)}
+                    title="Open in Panel"
+                    onMouseEnter={() => triggerActionHover('control-open-panel', 'Open in Panel')}
+                    onMouseLeave={clearActionHover}
+                  >
+                    <NotebookText size={iconSize} />
+                  </div>
+                )}
                 {isFormat && onCombineNodeGroup && (
                   <div
                     className="piemenu-button"

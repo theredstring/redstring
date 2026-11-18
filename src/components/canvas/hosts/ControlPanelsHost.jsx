@@ -37,7 +37,7 @@ import { condenseFormula } from '../formats/formula/condenseFormula.js';
 import { copyFormula } from '../formats/formula/copyFormula.js';
 import { deleteNodeGroup } from '../groups/deleteNodeGroup.js';
 import { useGroupFormulaText, groupFormats, FORMAT_LABELS } from '../formats/groupFormats.js';
-import useFormatsStore, { showFormatInPlace, showAsThings, setNotation, setFormulaNames, selectStandard } from '../formats/formatsStore.js';
+import useFormatsStore, { showFormatInPlace, showAsThings, setNotation, setFormulaNames, selectStandard, startFormulaRename } from '../formats/formatsStore.js';
 import { Scaling, Shapes, Sigma, Superscript, WholeWord } from 'lucide-react';
 import { buildGroupPieButtons, setGroupPieButtons, reframeGroup } from '../pie/groupPieButtons.js';
 import {
@@ -274,13 +274,16 @@ export default function ControlPanelsHost({ ctx }) {
 
   const handleGroupPanelEdit = useCallback(() => {
     if (!selectedGroup) return;
+    // Shown as a formula, the equation draws its own title, and edits its name there.
+    const viewed = activeGraphId ? projectGraphView(useGraphStore.getState(), activeGraphId)?.groups?.get(selectedGroup.id) : null;
+    if (viewed?.format === 'formula') { startFormulaRename(selectedGroup.id); return; }
     // Start inline editing; a node-group's prototype owns the name, so seed from it.
     const linkedPrototype = selectedGroup.linkedNodePrototypeId
       ? nodePrototypesMap.get(selectedGroup.linkedNodePrototypeId)
       : null;
     setEditingGroupId(selectedGroup.id);
     setTempGroupName(linkedPrototype?.name || selectedGroup.name || 'Group');
-  }, [selectedGroup, nodePrototypesMap]);
+  }, [selectedGroup, nodePrototypesMap, activeGraphId]);
 
   const handleGroupPanelColor = useCallback((e) => {
     if (!activeGraphId || !selectedGroup) return;
@@ -471,6 +474,12 @@ export default function ControlPanelsHost({ ctx }) {
     }
   }, [activeGraphId, selectedGroup, storeActions, setSelectedGroup]);
 
+  // Open in Panel, from the group pie and the group panel alike: the tab, with the panel out.
+  const openGroupInPanel = () => {
+    handleNodeGroupOpenInPanel();
+    if (!rightPanelExpanded) storeActions.setRightPanelExpanded(true);
+  };
+
   // The group pie (pie/groupPieButtons.js): this panel's actions, drawn above a
   // selected Thing-group's or equation's title by GroupPieMenuLayer. Its buttons
   // call through a ref, so the list is rebuilt only when the set changes.
@@ -478,10 +487,7 @@ export default function ControlPanelsHost({ ctx }) {
   groupPieHandlersRef.current = {
     swapFormat,
     onDiveIntoDefinition: handleNodeGroupDiveIntoDefinition,
-    onOpenInPanel: () => {
-      handleNodeGroupOpenInPanel();
-      if (!rightPanelExpanded) storeActions.setRightPanelExpanded(true);
-    },
+    onOpenInPanel: openGroupInPanel,
     onCombine: groupPanelMode === 'format' ? handleFormulaCondense : handleNodeGroupCombine,
     onUpdateDefinition: handleNodeGroupUpdateDefinition,
     onRefreshFromDefinition: handleNodeGroupRefreshFromDefinition,
@@ -711,7 +717,7 @@ export default function ControlPanelsHost({ ctx }) {
             onGroupColor={handleGroupPanelColor}
             onConvertToNodeGroup={handleGroupPanelConvertToNodeGroup}
             onDiveIntoDefinition={handleNodeGroupDiveIntoDefinition}
-            onOpenNodePrototypeInPanel={handleNodeGroupOpenInPanel}
+            onOpenNodePrototypeInPanel={openGroupInPanel}
             onCombineNodeGroup={handleNodeGroupCombine}
             onUpdateDefinitionFromGroup={handleNodeGroupUpdateDefinition}
             onRefreshGroupFromDefinition={handleNodeGroupRefreshFromDefinition}

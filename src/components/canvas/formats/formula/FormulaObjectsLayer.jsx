@@ -42,7 +42,7 @@ import { groupLiftShadowOn } from '../../groups/groupLiftShadow.js';
 import { useFormulaObjects } from './useFormulaObjects.js';
 import { subscriptOf, vectorOf } from './formulaChain.js';
 import { useGlide, GLIDE_MS, FRAME_MS, glideEase } from './useGlide.js';
-import { flipFormulaToken } from '../formatsStore.js';
+import useFormatsStore, { flipFormulaToken, endFormulaRename } from '../formatsStore.js';
 import { traceEdgesIn } from '../../edges/edgeTransitions.js';
 import { getCanvasGroupInput } from '../../groups/groupInput.js';
 import { tapFormula } from './formulaSelection.js';
@@ -306,6 +306,68 @@ function TokenText({ text, x, y, size: sized, fill, opacity = 1, pill = false, r
   const color = other.fill === fill ? fill : mixColor(other.fill, fill, turned);
   const alpha = other.opacity + (opacity - other.opacity) * filled;
   return grow(<TokenTextAt text={text} at={at} size={size} fill={color} opacity={alpha * shown} />);
+}
+
+/**
+ * Edit Name, on the equation's title, as a Thing-group's title takes it
+ * (groupElements): Enter or a tap away keeps the name, Escape leaves it. An
+ * untitled equation has no title, so the field sits on a tab of its own over
+ * the band.
+ */
+function TitleRename({ obj, rect, font, color, tab = null }) {
+  const [value, setValue] = useState(() => (
+    (obj.equationProtoId && useGraphStore.getState().nodePrototypes.get(obj.equationProtoId)?.name) || obj.title || ''
+  ));
+  const inputRef = useRef(null);
+  const doneRef = useRef(false);
+  const valueRef = useRef(value);
+  valueRef.current = value;
+  const finish = (name) => {
+    if (doneRef.current) return;
+    doneRef.current = true;
+    endFormulaRename(obj.groupId, name);
+  };
+  useEffect(() => {
+    inputRef.current?.focus();
+    inputRef.current?.select();
+    // A tap elsewhere ends it: on touch the canvas's tap handling keeps the
+    // field from losing focus on its own (as NodeCanvas does for group titles).
+    const outside = (e) => {
+      if (inputRef.current && !inputRef.current.contains(e.target)) finish(valueRef.current);
+    };
+    document.addEventListener('touchstart', outside, true);
+    return () => document.removeEventListener('touchstart', outside, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const stop = (e) => e.stopPropagation();
+  return (
+    <foreignObject x={rect.x} y={rect.y} width={rect.w} height={rect.h} style={{ pointerEvents: 'auto', overflow: 'visible' }}>
+      <input
+        ref={inputRef}
+        className="formula-title-rename"
+        value={value}
+        spellCheck={false}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          e.stopPropagation();
+          if (e.key === 'Enter') { e.preventDefault(); finish(value); }
+          else if (e.key === 'Escape') { e.preventDefault(); finish(null); }
+        }}
+        onBlur={() => finish(valueRef.current)}
+        onPointerDown={stop}
+        onMouseDown={stop}
+        onTouchStart={stop}
+        onClick={stop}
+        onDoubleClick={stop}
+        style={{
+          width: '100%', height: '100%', boxSizing: 'border-box', margin: 0, padding: `0 ${font * 0.6}px`,
+          fontSize: `${font}px`, fontFamily: 'EmOne, sans-serif', fontWeight: 'bold', textAlign: 'center',
+          color, border: 'none', outline: 'none',
+          background: tab || 'transparent', borderRadius: tab ? `${G.nodeGroupCornerRadius}px` : 0,
+        }}
+      />
+    </foreignObject>
+  );
 }
 
 /** The title, gliding to stay centred on its band. */
@@ -663,6 +725,7 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null, into
   const textColor = theme.canvas.textPrimary;
   const { frame, inner, titleBox } = obj;
   const titleFont = obj.titleFont ?? TITLE_FONT;
+  const renaming = useFormatsStore(s => s.renaming === obj.groupId) && !leaving;
   // Drawn relative to the formula's middle, so moving it moves it at once and
   // only a change of its own layout slides.
   const o = obj.center;
@@ -952,7 +1015,17 @@ function FormulaObject({ obj, theme, selected, lifted, leavingStart = null, into
               ))}
             </text>
           )}
-          {obj.title && (morphingTitle ? (
+          {renaming ? (
+            obj.title ? (
+              <TitleRename obj={obj} rect={box(titleBox)} font={titleFont} color={onBand} />
+            ) : (() => {
+              // Untitled: a tab of the title's size over the band's top edge.
+              const h = titleFont * 1.9;
+              const w = Math.max(frame.w, titleFont * 10);
+              const r = box({ x: frame.x + frame.w / 2 - w / 2, y: frame.y - h - titleFont * 0.3, w, h });
+              return <TitleRename obj={obj} rect={r} font={titleFont} color={onBand} tab={color} />;
+            })()
+          ) : obj.title && (morphingTitle ? (
             // Placed exactly each frame: a gliding title would trail the morph.
             <text
               x={titleAt.x} y={titleAt.y}
