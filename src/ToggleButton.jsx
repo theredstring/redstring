@@ -5,6 +5,11 @@ import { ArrowLeftFromLine, ArrowRightFromLine } from 'lucide-react';
 import { HEADER_HEIGHT } from './constants'; // Assuming constants file is accessible
 import { useMobileLandscapeShell } from './hooks/useMobileLandscapeShell.js';
 
+// The 1 and 2 keys toggle the left and right panels; the hint is only for
+// keyboards, so touch screens never show it.
+const HAS_TOUCH = typeof window !== 'undefined'
+  && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
+
 const ToggleButton = ({ isExpanded, onClick, side = 'right' }) => {
   const theme = useTheme();
   // The fullscreen landscape shell has no header to sit below, so the panel
@@ -45,6 +50,24 @@ const ToggleButton = ({ isExpanded, onClick, side = 'right' }) => {
       onClick={onClick}
       title={isExpanded ? 'Collapse Panel' : 'Expand Panel'} // Tooltip
     >
+      {!HAS_TOUCH && (
+        <span
+          aria-hidden="true"
+          style={{
+            position: 'absolute',
+            top: 3,
+            left: 5,
+            fontSize: 8,
+            lineHeight: 1,
+            color: '#EFE8E5',
+            opacity: 0.6,
+            pointerEvents: 'none',
+            userSelect: 'none',
+          }}
+        >
+          {side === 'left' ? '1' : '2'}
+        </span>
+      )}
       <Icon
         size={24}
         color="#EFE8E5"
