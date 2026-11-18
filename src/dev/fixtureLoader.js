@@ -59,6 +59,18 @@ const FIXTURE_DEFAULTS = {
   stress: { showConnectionNames: true },
 };
 
+// Session cameras for the committed fixtures, by web id → zoom. Views are not
+// saved in a universe (a web opens framed on its largest cluster), so the
+// flows' starting camera is seeded here instead: world (0,0) at the middle of
+// the canvas area of a 1280x800 window. A and B use different zooms so F15 can
+// tell the views apart; stress is zoomed out so culling has work to do.
+const FIXTURE_VIEWS = {
+  small: { 'g-small-a': 0.65, 'g-small-b': 0.8 },
+  stress: { 'g-stress': 0.4 },
+};
+const CANVAS_OFFSET = -50000;
+const viewCentredOnOrigin = (zoom) => ({ x: 640 + CANVAS_OFFSET * zoom, y: 350 + CANVAS_OFFSET * zoom });
+
 const tag = '[fixture]';
 
 function neutralizePersistence(universeBackend) {
@@ -253,6 +265,9 @@ export async function bootFixtureMode(name) {
   }
   const text = (await loadCommitted()).default;
   const summary = await loadFixtureData(text, { label: name });
+  for (const [graphId, zoom] of Object.entries(FIXTURE_VIEWS[name] || {})) {
+    useGraphStore.getState().updateGraphView(graphId, viewCentredOnOrigin(zoom), zoom);
+  }
 
   const params = new URLSearchParams(window.location.search);
   const defaults = { ...(FIXTURE_DEFAULTS[name] || {}) };

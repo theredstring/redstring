@@ -117,11 +117,6 @@ function canonicalizeUuids(text, namespaceNibble) {
  * with canvasOffset = -50000 (canvasSize.offsetX/Y), so
  *   pan = point - (0 - canvasOffset) * zoom.
  */
-function viewCentredOnOrigin(zoom) {
-  const CANVAS_OFFSET = -50000;
-  return { x: 640 + CANVAS_OFFSET * zoom, y: 350 + CANVAS_OFFSET * zoom };
-}
-
 // ---------------------------------------------------------------------------
 // Small fixture: a handful of nodes laid out around world (0,0), which is the
 // centre of the default view, so every flow target is on screen at zoom 1.
@@ -205,13 +200,8 @@ function buildSmall(store) {
   S().addNodeInstance(B, 'p-nu', { x: -80, y: 120 }, 'i-nu');
   S().addEdge(B, { id: 'e-lambda-mu', sourceId: 'i-lambda', destinationId: 'i-mu', definitionNodeIds: ['p-rel-causes'] });
   S().addEdge(B, { id: 'e-mu-nu', sourceId: 'i-mu', destinationId: 'i-nu' });
-  // Stored cameras. Without one, export writes pan {0,0} / zoom 1, which puts
-  // the far corner of the canvas on screen, nowhere near any node. Both views
-  // put world (0,0) at the middle of the canvas area of a 1280x800 window. A
-  // and B use different zooms so F15 can tell the views apart.
-  S().updateGraphView(A, viewCentredOnOrigin(0.65), 0.65);
-  S().updateGraphView(B, viewCentredOnOrigin(0.8), 0.8);
-
+  // Cameras are not saved in a universe; fixture mode seeds the flows' starting
+  // views (FIXTURE_VIEWS in src/dev/fixtureLoader.js).
   S().setActiveGraph(A);
   // A universe opens on its first open web (the active web is not saved), and
   // the flows expect Web A. B was created first, so move A to the front.
@@ -361,8 +351,6 @@ function buildStress(store, rand) {
     }
   }
 
-  // Zoomed out enough to show a few hundred nodes, so culling has work to do.
-  S().updateGraphView(G, viewCentredOnOrigin(0.4), 0.4);
   S().setActiveGraph(G);
   store.setState({ savedNodeIds: new Set(['p-s-000', 'p-s-001', 'p-s-002']) });
   return { edgeCount, groupCount, nodeGroupCount, nestedCount };

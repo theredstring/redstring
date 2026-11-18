@@ -24,6 +24,17 @@ async function openVisit(page) {
 const gamma = (page) => page.locator('svg.canvas g.node', { hasText: 'Gamma' });
 const title = (page, name) => page.locator('svg.canvas g.group-label', { hasText: name });
 
+// A web opens framed on its largest cluster, which can leave a title under the
+// Universes panel: close it, and start on the title only once nothing covers it.
+async function titleCentre(page, name) {
+  await storeEval(page, (st) => st.setLeftPanelExpanded(false));
+  await expect.poll(async () => {
+    const c = centerOf(await title(page, name).boundingBox());
+    return page.evaluate(({ x, y }) => !!document.elementFromPoint(x, y)?.closest('g.group-label'), c);
+  }, { message: `the title of ${name} is uncovered` }).toBe(true);
+  return centerOf(await title(page, name).boundingBox());
+}
+
 const documentNow = (page) => storeEval(page, (st) => {
   const g = st.graphs.get(st.activeGraphId);
   return JSON.stringify({ at: [...g.instances.values()].map((i) => [i.x, i.y]), edges: st.edges.size });
@@ -78,7 +89,7 @@ test.describe('by mouse', () => {
       await openVisit(page);
       const before = await documentNow(page);
       const cam0 = await camera(page);
-      const from = centerOf(await title(page, name).boundingBox());
+      const from = await titleCentre(page, name);
       await mouseDrag(page, from, { x: from.x + 60, y: from.y + 100 }, { stepDelayMs: 16 });
       const cam1 = await waitForCameraSettled(page);
       expect(cam1.pan.y).toBeGreaterThan(cam0.pan.y + 50);
@@ -144,7 +155,7 @@ test.describe('by finger', () => {
       const touch = await touchscreen(page);
       const before = await documentNow(page);
       const cam0 = await camera(page);
-      const from = centerOf(await title(page, name).boundingBox());
+      const from = await titleCentre(page, name);
       await touch.start([from]);
       for (let i = 1; i <= 12; i++) {
         await touch.move([{ x: from.x + 5 * i, y: from.y + 8 * i }]);
