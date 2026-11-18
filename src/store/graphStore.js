@@ -2297,7 +2297,7 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     showConnectionControlPanel: (() => { try { const s = localStorage.getItem('redstring_show_connection_cp'); return s === null ? true : s === 'true'; } catch (_) { return true; } })(),
     showGroupControlPanel: (() => { try { const s = localStorage.getItem('redstring_show_group_cp'); return s === null ? true : s === 'true'; } catch (_) { return true; } })(),
     showEquationControlPanel: (() => { try { const s = localStorage.getItem('redstring_show_equation_cp'); return s === null ? true : s === 'true'; } catch (_) { return true; } })(),
-    showAbstractionControlPanel: (() => { try { const s = localStorage.getItem('redstring_show_abstraction_cp'); return s === null ? true : s === 'true'; } catch (_) { return true; } })(),
+    showAbstractionControlPanel: (() => { try { const s = localStorage.getItem('redstring_show_abstraction_cp'); return s === 'true'; } catch (_) { return false; } })(),
     hoverPreviewSize: (() => {
       try {
         const saved = localStorage.getItem('redstring_hover_preview_size');

@@ -76,7 +76,7 @@ export default function ControlPanelsHost({ ctx }) {
   const showConnectionControlPanel = useGraphStore((state) => state.showConnectionControlPanel ?? true);
   const showGroupControlPanel = useGraphStore((state) => state.showGroupControlPanel ?? true);
   const showEquationControlPanel = useGraphStore((state) => state.showEquationControlPanel ?? true);
-  const showAbstractionControlPanel = useGraphStore((state) => state.showAbstractionControlPanel ?? true);
+  const showAbstractionControlPanel = useGraphStore((state) => state.showAbstractionControlPanel ?? false);
   // The group the panel is about, read through to the active web so a rename or
   // recolour elsewhere shows up (P2.03b). Read as viewed: an open box's group
   // (`open:<anchorId>`) exists only in the projection, not the raw graph.

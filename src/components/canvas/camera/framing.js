@@ -660,7 +660,7 @@ export function frameCarouselOnOpen(ctx) {
     // Frame against the usable canvas region (panels/header/typelist excluded),
     // in container coordinates — so the node centers in what's actually visible
     // rather than the full window when panels/typelist are open. The abstraction
-    // control panel comes up with the carousel (showAbstractionControlPanel, on by
+    // control panel comes up with the carousel (showAbstractionControlPanel, off by
     // default) and sits right under the stack, so it's excluded too when present.
     const vb = getFramingRegion({ reserveBottomPanel: true });
     const regionCenterX = vb.x + vb.width / 2;

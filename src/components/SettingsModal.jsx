@@ -201,7 +201,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
   const showConnectionControlPanel = useGraphStore(s => s.showConnectionControlPanel ?? false);
   const showGroupControlPanel = useGraphStore(s => s.showGroupControlPanel ?? true);
   const showEquationControlPanel = useGraphStore(s => s.showEquationControlPanel ?? true);
-  const showAbstractionControlPanel = useGraphStore(s => s.showAbstractionControlPanel ?? true);
+  const showAbstractionControlPanel = useGraphStore(s => s.showAbstractionControlPanel ?? false);
 
   // Counting happens on the way in, so the fifth tap is the one that reveals it.
   const registerAboutTap = () => {
