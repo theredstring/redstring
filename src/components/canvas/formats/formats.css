@@ -516,6 +516,49 @@ button.format-pill:disabled {
   border-radius: 0.3em;
 }
 
+/* --- An equation's symbols, in its About (formula/SymbolsCard) -------
+   Each row: the letter as text, the Thing it stands for as the panel's lists
+   draw a Thing (or an empty slot), then Swap. */
+
+.symbols-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.symbols-row {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.symbols-row-symbol {
+  flex-shrink: 0;
+  font-family: 'EmOne', sans-serif;
+  font-size: 1.15rem;
+  font-weight: bold;
+}
+
+.symbols-row-thing {
+  min-width: 0;
+}
+
+.symbols-row-empty {
+  flex-shrink: 0;
+  min-height: 32px;
+  padding: 4px 12px;
+  border: 1.5px dashed;
+  border-radius: 10px;
+  background: transparent;
+  font-family: 'EmOne', sans-serif;
+  font-size: 0.8rem;
+  font-weight: bold;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
 .equations-row-formula {
   max-width: 100%;
   overflow: hidden;

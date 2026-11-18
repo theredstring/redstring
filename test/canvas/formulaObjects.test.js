@@ -110,4 +110,38 @@ describe('formula objects', () => {
     expect(fo.objects).toEqual([]);
     expect(fo.hiddenIds.size).toBe(0);
   });
+
+  // The web's instances replaced, as a store write replaces them.
+  const withInstances = (state, change) => {
+    const graph = state.graphs.get('web');
+    const instances = new Map(graph.instances);
+    change(instances);
+    return { ...state, graphs: new Map(state.graphs).set('web', { ...graph, instances }) };
+  };
+
+  it('keeps the same formulas when a Thing lands beside them', () => {
+    const state = webState();
+    const before = computeFormulaObjects(state);
+    const dropped = withInstances(state, (m) => m.set('new', { id: 'new', prototypeId: 'p-Cat', x: 2000, y: 0, scale: 1 }));
+    expect(computeFormulaObjects(dropped)).toBe(before);
+  });
+
+  it('works them out again when one of their Things moves', () => {
+    const state = webState();
+    const before = computeFormulaObjects(state);
+    const moved = withInstances(state, (m) => m.set('a', { ...m.get('a'), x: m.get('a').x - 200 }));
+    const after = computeFormulaObjects(moved);
+    expect(after).not.toBe(before);
+    expect(after.objects[0].center.x).not.toBe(before.objects[0].center.x);
+  });
+
+  it('works them out again when a group changes', () => {
+    const state = webState();
+    const before = computeFormulaObjects(state);
+    const graph = state.graphs.get('web');
+    const groups = new Map(graph.groups);
+    groups.set('g', { ...groups.get('g'), formulaSize: 2 });
+    const resized = { ...state, graphs: new Map(state.graphs).set('web', { ...graph, groups }) };
+    expect(computeFormulaObjects(resized)).not.toBe(before);
+  });
 });

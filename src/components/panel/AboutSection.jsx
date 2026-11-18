@@ -3,6 +3,7 @@ import { ExternalLink, X, ChevronDown, Plus, Link2, History, Check, Binoculars, 
 import PanelIconButton from '../shared/PanelIconButton.jsx';
 import PanelCard, { usePanelCardTokens } from '../shared/PanelCard.jsx';
 import InfoPopover from '../shared/InfoPopover.jsx';
+import SymbolsCard from '../canvas/formats/formula/SymbolsCard.jsx';
 import AnchoredPopoverBox from '../shared/AnchoredPopoverBox.jsx';
 import { useTheme } from '../../hooks/useTheme.js';
 import {
@@ -1014,6 +1015,9 @@ const AboutSection = ({ nodeData, onNodeUpdate, isHomeTab = false, graphData = n
     // panel reads as one system rather than as two sections that happen to sit
     // near each other.
     <div ref={sectionRef} style={{ marginRight: 15, fontFamily: FONT }}>
+      {/* An equation's letters and what each stands for. */}
+      <SymbolsCard protoId={nodeData?.id} compact={isUltraSlim} />
+
       <PanelCard
         title="Known Elsewhere As"
         icon={Link2}

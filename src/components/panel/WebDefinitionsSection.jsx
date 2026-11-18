@@ -1,4 +1,4 @@
-import { useDeferredValue, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useContext, useDeferredValue, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowUpFromDot, ChevronLeft, ChevronRight, NotebookText, Plus, Trash2 } from 'lucide-react';
 import { getDefinitionDescription } from '../../utils.js';
 import { useTheme } from '../../hooks/useTheme.js';
@@ -7,6 +7,7 @@ import useDoubleTap from '../../hooks/useDoubleTap.js';
 import WebCard from '../webPreview/WebCard.jsx';
 import { projectGraphView, viewEdges } from '../../core/openDefinitions.js';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
+import { PanelOpenContext } from './panelOpenContext.js';
 
 // Lines of description shown before "Show More"; enough to tell definitions apart
 // while skimming.
@@ -43,11 +44,19 @@ export const DefinitionCard = ({ graphId, nodeName, nodeColor, titleDrop = 0 }) 
     Array.isArray(edgeIds) ? edgeIds.map((id) => edgesMap.get(id)).filter(Boolean) : []
   ), [edgeIds, edgesMap]);
 
+  // In a closed panel the card keeps what it last drew. The Web on show is
+  // often the one being edited (a home tab showing its own graph), and drawing
+  // it again on every edit, unseen, cost a big universe a beat after each one.
+  const panelOpen = useContext(PanelOpenContext);
+  const shownRef = useRef(null);
+  if (panelOpen || !shownRef.current) shownRef.current = { nodes, edges, groups };
+  const shown = shownRef.current;
+
   // The Web on show can be the one being dragged around on the canvas (a home
   // tab showing its own graph); let the canvas frame win.
-  const deferredNodes = useDeferredValue(nodes);
-  const deferredEdges = useDeferredValue(edges);
-  const deferredGroups = useDeferredValue(groups);
+  const deferredNodes = useDeferredValue(shown.nodes);
+  const deferredEdges = useDeferredValue(shown.edges);
+  const deferredGroups = useDeferredValue(shown.groups);
 
   const title = (typeof webName === 'string' && webName.trim()) ? webName.trim() : nodeName;
 

@@ -428,12 +428,41 @@ function formulaObjectsOf(state, standard, namesShown, flipped) {
   // all the same, so the same inputs give the same object (React re-reads a
   // store snapshot and loops forever on one that is new each time).
   const fontsReady = formulaFontsReady();
-  if (last && last.fontsReady === fontsReady && last.view === view && last.text === state.textSettings && last.grid === state.gridSettings && last.protos === state.nodePrototypes && last.edges === state.edges && last.standard === standard && last.namesShown === namesShown && last.flipped === flipped) {
+  const sameRest = last && last.graphId === graphId && last.fontsReady === fontsReady && last.text === state.textSettings && last.grid === state.gridSettings && last.protos === state.nodePrototypes && last.edgeProtos === state.edgePrototypes && last.edges === state.edges && last.standard === standard && last.namesShown === namesShown && last.flipped === flipped;
+  if (sameRest && last.view === view) return last.result;
+  // The web changed, but maybe nothing a formula is read from: a Thing dropped
+  // beside them. Then the formulas are the same objects, and the canvas skips
+  // working them out and drawing them again.
+  const inputs = formulaInputsOf(view);
+  if (sameRest && last.inputs === inputs) {
+    last = { ...last, view };
     return last.result;
   }
   const result = formulaObjectsIn(state, view, graphId, { standard, namesShown, flipped });
-  last = { fontsReady, view, text: state.textSettings, grid: state.gridSettings, protos: state.nodePrototypes, edges: state.edges, standard, namesShown, flipped, result };
+  last = { graphId, fontsReady, view, inputs, text: state.textSettings, grid: state.gridSettings, protos: state.nodePrototypes, edgeProtos: state.edgePrototypes, edges: state.edges, standard, namesShown, flipped, result };
   return result;
+}
+
+const plainJson = (_, v) => (v instanceof Set || v instanceof Map ? [...v] : v);
+
+/**
+ * Everything of a web's own that its formulas are worked out from
+ * (formulaObjectsIn), as one string: every group whole, every Thing in a
+ * formula and its anchor, and the connections drawn. Things, connections and
+ * settings shared across the universe are compared by the caller.
+ */
+function formulaInputsOf(view) {
+  const ids = new Set();
+  const groups = [];
+  view.groups.forEach((g) => {
+    groups.push(g);
+    if (g.format !== 'formula') return;
+    (g.memberInstanceIds || []).forEach(id => ids.add(id));
+    if (g.anchorInstanceId) ids.add(g.anchorInstanceId);
+  });
+  const things = [...ids].map(id => [id, view.instances.get(id) || null]);
+  const edges = (view.edgeIds || []).map(id => [id, view.openView?.edges?.get(id) || null]);
+  return JSON.stringify([groups, things, edges], plainJson);
 }
 
 /**

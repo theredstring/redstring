@@ -33,7 +33,7 @@ const ACTIONS_WIDTH = 74;
 const ROWS_COLLAPSED = 4;
 
 /** One node chip, the control panel's node preview at the panel-list text size. */
-export const ThingChip = ({ id, name, color, definitionGraphIds, maxWidth }) => {
+export const ThingChip = ({ id, name, color, definitionGraphIds, maxWidth, cornerRadiusMultiplier }) => {
   const { isMobile } = useMobileDetection();
   const padding = 4;
   const grid = useMemo(() => layoutNodeChips({
@@ -52,6 +52,7 @@ export const ThingChip = ({ id, name, color, definitionGraphIds, maxWidth }) => 
       padding={padding}
       ignoreGlobalScale={true}
       interactive={false}
+      {...(cornerRadiusMultiplier != null ? { cornerRadiusMultiplier } : {})}
     />
   );
 };

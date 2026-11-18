@@ -14,6 +14,7 @@ import useImageCache from './services/imageCache.js';
 import ToggleButton from './ToggleButton'; // Import the new component
 import { useMobileLandscapeShell } from './hooks/useMobileLandscapeShell.js';
 import PanelResizerHandle from './components/PanelResizerHandle.jsx';
+import { PanelOpenContext } from './components/panel/panelOpenContext.js';
 import ColorPicker from './ColorPicker'; // Import the new ColorPicker component
 import PanelColorPickerPortal from './components/PanelColorPickerPortal.jsx';
 import NodeSelectionGrid from './NodeSelectionGrid'; // Import NodeSelectionGrid for type selection
@@ -2273,17 +2274,19 @@ const Panel = memo(
             className="panel-content"
             style={{ flex: 1, paddingBottom: effectiveBottomPadding, touchAction: 'pan-y' }}
           >
-            {panelContent}
-            {/* LeftAIView stays mounted (hidden when not active) to preserve wizard sessions */}
-            {enableWizard && side === 'left' && (
-              <div style={{ display: leftViewActive === 'ai' ? 'contents' : 'none' }}>
-                <LeftAIView
-                  compact={panelWidth < 360}
-                  active={leftViewActive === 'ai'}
-                  activeGraphId={activeGraphId}
-                />
-              </div>
-            )}
+            <PanelOpenContext.Provider value={isExpanded}>
+              {panelContent}
+              {/* LeftAIView stays mounted (hidden when not active) to preserve wizard sessions */}
+              {enableWizard && side === 'left' && (
+                <div style={{ display: leftViewActive === 'ai' ? 'contents' : 'none' }}>
+                  <LeftAIView
+                    compact={panelWidth < 360}
+                    active={leftViewActive === 'ai'}
+                    activeGraphId={activeGraphId}
+                  />
+                </div>
+              )}
+            </PanelOpenContext.Provider>
           </div>
         </div>
 
