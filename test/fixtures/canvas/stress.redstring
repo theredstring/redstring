@@ -186,14 +186,6 @@
    "@id": "redstring:typeNodeId",
    "@type": "@id"
   },
-  "created": {
-   "@id": "http://purl.org/dc/terms/created",
-   "@type": "xsd:dateTime"
-  },
-  "modified": {
-   "@id": "http://purl.org/dc/terms/modified",
-   "@type": "xsd:dateTime"
-  },
   "version": "http://purl.org/dc/terms/hasVersion",
   "pod": "https://www.w3.org/ns/solid/terms#pod",
   "webId": "http://xmlns.com/foaf/0.1/webId",
@@ -236,6 +228,14 @@
    "@id": "redstring:lastViewed",
    "@type": "xsd:dateTime"
   },
+  "created": {
+   "@id": "http://purl.org/dc/terms/created",
+   "@type": "xsd:dateTime"
+  },
+  "modified": {
+   "@id": "http://purl.org/dc/terms/modified",
+   "@type": "xsd:dateTime"
+  },
   "graphLayouts": null,
   "graphSummaries": null,
   "userInterface": null,
@@ -267,7 +267,13 @@
     "Content-addressed images (additive, no version bump): optional top-level prototype fields redstring:imageRef (\"sha256:<hex>\") and redstring:imageRefExt point at a blob under universes/<folder>/images/, written by the git sync engine",
     "Only the full-resolution redstring:imageSrc is externalized; redstring:thumbnailSrc stays inline so the canvas renders with no network and builds that ignore the ref still draw a correct graph",
     "Inline base64 imageSrc remains fully valid on read — the two forms coexist indefinitely and locally-saved files stay single-file",
-    "The image fields sit at the prototype top level so quarantineUnknownFields banks them into _preserved for builds that predate them, instead of being silently dropped from a rebuilt visualProperties block"
+    "The image fields sit at the prototype top level so quarantineUnknownFields banks them into _preserved for builds that predate them, instead of being silently dropped from a rebuilt visualProperties block",
+    "Definitions opened in place (additive, no version bump): optional instance field redstring:openDefinition { redstring:definitionIndex, redstring:xOffset, redstring:yOffset } shows that definition inside the node without copying it; optional edge fields sourceVia/destinationVia name the nodes, from the edge's own graph inward, through whose definitions an end is reached",
+    "Builds that predate them keep both in _preserved (top-level keys), show the node closed, and keep the connections into it; the prototype-level rdfStatements are unchanged",
+    "Formats (additive, no version bump): optional group field redstring:format (\"formula\") shows a group as its formula; optional top-level prototype field redstring:labels ({ formula: \"P\" }) is how a Thing is written in a context; the same field on an instance is how that one is written where it stands (q_1 for Electric Charge), over its Thing's. Builds that predate them show the Things and keep the labels in _preserved",
+    "Formats on nodes (additive, no version bump): optional instance fields redstring:format and redstring:linkedFormat carry a Thing-group's format onto its node while it is folded, so it opens the same way; per placement, not per Thing. Builds that predate them keep both in _preserved",
+    "Formula size (additive, no version bump): optional group field redstring:formulaSize (a multiplier, 1 when absent) is the size a group shown as its formula is drawn at; the same field on an instance carries it while its Thing-group is folded. Builds that predate it draw the formula at the default size",
+    "Formula size is its node's (2026-10-26, no version bump): an equation opened in place is drawn at its node's redstring:sizeMultiplier, and a Thing-group's redstring:formulaSize moves onto its node's size when it folds. Instances no longer write redstring:formulaSize; read, an open equation's becomes its node's size"
    ],
    "breaking": false
   }
@@ -26592,11 +26598,6 @@
     ],
     "redstring:directed": false,
     "redstring:color": "#8B0000",
-    "redstring:panOffset": {
-     "x": -19360,
-     "y": -19650
-    },
-    "redstring:zoomLevel": 0.4,
     "redstring:instances": {
      "i-s-0000": {
       "@type": "redstring:Instance",
@@ -39475,6 +39476,7 @@
       "redstring:linkedDefinitionIndex": 0,
       "redstring:hasCustomLayout": false,
       "redstring:anchorInstanceId": "00000000-0000-4000-8200-00000000000e",
+      "redstring:definitionFingerprint": "2:3ef04f82",
       "rdfs:member": [
        {
         "@id": "urn:redstring:id:i-s-0053"
@@ -39945,6 +39947,7 @@
       "redstring:linkedDefinitionIndex": 0,
       "redstring:hasCustomLayout": false,
       "redstring:anchorInstanceId": "00000000-0000-4000-8200-000000000010",
+      "redstring:definitionFingerprint": "2:fc278e96",
       "rdfs:member": [
        {
         "@id": "urn:redstring:id:i-s-0153"
@@ -40453,6 +40456,7 @@
       "redstring:linkedDefinitionIndex": 0,
       "redstring:hasCustomLayout": false,
       "redstring:anchorInstanceId": "00000000-0000-4000-8200-000000000012",
+      "redstring:definitionFingerprint": "2:708a8b23",
       "rdfs:member": [
        {
         "@id": "urn:redstring:id:i-s-0253"
@@ -40961,6 +40965,7 @@
       "redstring:linkedDefinitionIndex": 0,
       "redstring:hasCustomLayout": false,
       "redstring:anchorInstanceId": "00000000-0000-4000-8200-000000000014",
+      "redstring:definitionFingerprint": "2:7939cb2b",
       "rdfs:member": [
        {
         "@id": "urn:redstring:id:i-s-0353"
@@ -41431,6 +41436,7 @@
       "redstring:linkedDefinitionIndex": 0,
       "redstring:hasCustomLayout": false,
       "redstring:anchorInstanceId": "00000000-0000-4000-8200-000000000016",
+      "redstring:definitionFingerprint": "2:95b60a24",
       "rdfs:member": [
        {
         "@id": "urn:redstring:id:i-s-0453"
@@ -41939,6 +41945,7 @@
       "redstring:linkedDefinitionIndex": 0,
       "redstring:hasCustomLayout": false,
       "redstring:anchorInstanceId": "00000000-0000-4000-8200-000000000018",
+      "redstring:definitionFingerprint": "2:8bae59dc",
       "rdfs:member": [
        {
         "@id": "urn:redstring:id:i-s-0553"
@@ -42300,8 +42307,7 @@
      }
     },
     "redstring:visualProperties": {
-     "redstring:expanded": true,
-     "redstring:activeInContext": true
+     "redstring:expanded": true
     },
     "redstring:edges": {
      "e-s-0000": {
@@ -76843,11 +76849,6 @@
     ],
     "redstring:directed": true,
     "redstring:color": "#6B2D5C",
-    "redstring:panOffset": {
-     "x": 0,
-     "y": 0
-    },
-    "redstring:zoomLevel": 1,
     "redstring:instances": {
      "00000000-0000-4000-8200-000000000043": {
       "@type": "redstring:Instance",
@@ -76894,8 +76895,7 @@
     },
     "redstring:groups": {},
     "redstring:visualProperties": {
-     "redstring:expanded": false,
-     "redstring:activeInContext": false
+     "redstring:expanded": false
     },
     "redstring:edges": {
      "00000000-0000-4000-8200-000000000042": {
@@ -76942,11 +76942,6 @@
     ],
     "redstring:directed": true,
     "redstring:color": "#6B2D5C",
-    "redstring:panOffset": {
-     "x": 0,
-     "y": 0
-    },
-    "redstring:zoomLevel": 1,
     "redstring:instances": {
      "00000000-0000-4000-8200-000000000047": {
       "@type": "redstring:Instance",
@@ -76993,8 +76988,7 @@
     },
     "redstring:groups": {},
     "redstring:visualProperties": {
-     "redstring:expanded": false,
-     "redstring:activeInContext": false
+     "redstring:expanded": false
     },
     "redstring:edges": {
      "00000000-0000-4000-8200-000000000045": {
@@ -77094,11 +77088,6 @@
     ],
     "redstring:directed": true,
     "redstring:color": "#6B2D5C",
-    "redstring:panOffset": {
-     "x": 0,
-     "y": 0
-    },
-    "redstring:zoomLevel": 1,
     "redstring:instances": {
      "00000000-0000-4000-8200-00000000004a": {
       "@type": "redstring:Instance",
@@ -77145,8 +77134,7 @@
     },
     "redstring:groups": {},
     "redstring:visualProperties": {
-     "redstring:expanded": false,
-     "redstring:activeInContext": false
+     "redstring:expanded": false
     },
     "redstring:edges": {
      "00000000-0000-4000-8200-000000000049": {
@@ -77205,11 +77193,6 @@
     ],
     "redstring:directed": true,
     "redstring:color": "#6B2D5C",
-    "redstring:panOffset": {
-     "x": 0,
-     "y": 0
-    },
-    "redstring:zoomLevel": 1,
     "redstring:instances": {
      "00000000-0000-4000-8200-00000000004d": {
       "@type": "redstring:Instance",
@@ -77256,8 +77239,7 @@
     },
     "redstring:groups": {},
     "redstring:visualProperties": {
-     "redstring:expanded": false,
-     "redstring:activeInContext": false
+     "redstring:expanded": false
     },
     "redstring:edges": {
      "00000000-0000-4000-8200-00000000004c": {
@@ -77304,11 +77286,6 @@
     "redstring:edgeIds": [],
     "redstring:directed": true,
     "redstring:color": "#6B2D5C",
-    "redstring:panOffset": {
-     "x": 0,
-     "y": 0
-    },
-    "redstring:zoomLevel": 1,
     "redstring:instances": {
      "00000000-0000-4000-8200-00000000004f": {
       "@type": "redstring:Instance",
@@ -77355,8 +77332,7 @@
     },
     "redstring:groups": {},
     "redstring:visualProperties": {
-     "redstring:expanded": false,
-     "redstring:activeInContext": false
+     "redstring:expanded": false
     },
     "redstring:edges": {}
    },
@@ -77371,11 +77347,6 @@
     "redstring:edgeIds": [],
     "redstring:directed": true,
     "redstring:color": "#6B2D5C",
-    "redstring:panOffset": {
-     "x": 0,
-     "y": 0
-    },
-    "redstring:zoomLevel": 1,
     "redstring:instances": {
      "00000000-0000-4000-8200-000000000051": {
       "@type": "redstring:Instance",
@@ -77422,8 +77393,7 @@
     },
     "redstring:groups": {},
     "redstring:visualProperties": {
-     "redstring:expanded": false,
-     "redstring:activeInContext": false
+     "redstring:expanded": false
     },
     "redstring:edges": {}
    }
@@ -77446,8 +77416,6 @@
   "redstring:openGraphIds": [
    "g-stress"
   ],
-  "redstring:activeGraphId": "g-stress",
-  "redstring:activeDefinitionNodeId": "00000000-0000-4000-8200-000000000001",
   "redstring:expandedGraphIds": [
    "g-stress"
   ],

@@ -15,7 +15,7 @@ Never pin the certificate's name (CN or O) anywhere. `test/release/check-mac-sig
 | macOS | Developer ID Application | Account Holder, by hand (below) | 1 year | GitHub secrets `CSC_LINK`, `CSC_KEY_PASSWORD` |
 | macOS notarization | App Store Connect team API key, or an Apple ID login | Account Holder or Admin | Until revoked | `APPLE_API_KEY_P8`, `APPLE_API_KEY_ID`, `APPLE_API_ISSUER` (or `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`) |
 | iOS | Apple Distribution | Xcode, automatically | 1 year | Xcode, the login keychain or Apple's cloud |
-| Android | Upload key; Google holds the app signing key | Us, once | 25+ years | Not set up yet (below) |
+| Android | Upload key; Google holds the app signing key | Us, once | 25+ years | `android/keystore.properties` (gitignored) or `REDSTRING_UPLOAD_*` variables. The key itself: not made yet (below) |
 | Windows | Authenticode code-signing certificate | A certificate authority, after verifying the LLC | 1 to 3 years | `WIN_CSC_LINK`, `WIN_CSC_KEY_PASSWORD`, `WIN_PUBLISHER_NAME`. Not set up yet: releases ship unsigned (`ALLOW_UNSIGNED_WINDOWS=true`) |
 | Linux | Nothing | | | AppImages ship unsigned |
 
@@ -69,13 +69,15 @@ The Xcode project uses automatic signing with `DEVELOPMENT_TEAM = 24MPFEY5BE`. X
 - Apple Development certificates are per person (they carry the member's name, even in an organization). Apple Distribution certificates carry the organization's name.
 - If Xcode shows a stale team name or type after an account change: Xcode, Settings, Accounts, remove the Apple ID and add it again. In Signing & Capabilities, pick the team, never a "(Personal Team)".
 
-## Android (when publishing to Google Play)
+## Android (Google Play)
 
-Not set up: `android/app/build.gradle` has no release signing and no workflow builds Android. With Play App Signing, Google holds the key that signs what users install; we hold only an **upload key**, which Google can reset if it is lost.
+Release signing is in `android/app/build.gradle`: it reads the upload key from `android/keystore.properties` (gitignored) or the `REDSTRING_UPLOAD_STORE_FILE`, `_STORE_PASSWORD`, `_KEY_ALIAS` and `_KEY_PASSWORD` variables, and a release build without one stops with an error. No workflow builds Android; the bundle is built locally. With Play App Signing, Google holds the key that signs what users install; we hold only an **upload key**, which Google can reset if it is lost.
 
-1. Generate it once: `keytool -genkeypair -v -keystore upload-keystore.jks -keyalg RSA -keysize 2048 -validity 10000 -alias upload`.
+1. Generate it once, outside the repo: `keytool -genkeypair -v -keystore ~/Keys/redstring-upload.jks -keyalg RSA -keysize 2048 -validity 10000 -alias upload`.
 2. Keystore and passwords go in the password manager. Never commit the `.jks` (gitignored).
-3. Enrol in Play App Signing when creating the app in Play Console. For CI, store the keystore as a base64 secret and its passwords as secrets, the same pattern as `CSC_LINK`.
+3. Create `android/keystore.properties` with `storeFile` (absolute path to the `.jks`), `storePassword`, `keyAlias=upload` and `keyPassword`.
+4. `npm run cap:bundle:android` builds the web app, syncs it and writes `android/app/build/outputs/bundle/release/app-release.aab`, versioned from `package.json`.
+5. Enrol in Play App Signing when creating the app in Play Console, and upload that `.aab`. For CI later, store the keystore as a base64 secret and its passwords as secrets, the same pattern as `CSC_LINK`.
 
 ## Windows (when buying the certificate)
 

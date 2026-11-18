@@ -213,6 +213,9 @@ function buildSmall(store) {
   S().updateGraphView(B, viewCentredOnOrigin(0.8), 0.8);
 
   S().setActiveGraph(A);
+  // A universe opens on its first open web (the active web is not saved), and
+  // the flows expect Web A. B was created first, so move A to the front.
+  store.setState((s) => ({ openGraphIds: [A, ...s.openGraphIds.filter((id) => id !== A)] }));
   // Only a few Things bookmarked, like a real universe.
   store.setState({ savedNodeIds: new Set(['p-alpha', 'p-beta']) });
 }
