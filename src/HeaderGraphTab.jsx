@@ -125,7 +125,23 @@ const HeaderGraphTab = ({ graph, onSelect, onDoubleClick, isActive, hideText = f
     opacity: isDragging ? 0.5 : (canDrag ? 1 : 0.6),
   };
 
+  // A rename needs both halves of the double-click/tap on the tab while it was
+  // already active. The header renders the active and inactive tab at the same
+  // spot in the tree, so a tab keeps this instance when it becomes active, and
+  // the browser (or WebKit's emulated dblclick on iPad) would otherwise count
+  // the tap that switched to it as the first half.
+  const clickedWhileActiveRef = useRef(false);
+  const renameArmedRef = useRef(false);
+  const lastTapRef = useRef(0);
+  useEffect(() => {
+    clickedWhileActiveRef.current = false;
+    renameArmedRef.current = false;
+    lastTapRef.current = 0;
+  }, [isActive]);
+
   const handleClick = (e) => {
+    renameArmedRef.current = isActive && clickedWhileActiveRef.current;
+    clickedWhileActiveRef.current = isActive;
     if (!isActive && onSelect && canDrag) {
       // Inside the !isActive guard: re-tapping the tab you're already on
       // changes nothing, so it shouldn't feel like it did.
@@ -135,12 +151,12 @@ const HeaderGraphTab = ({ graph, onSelect, onDoubleClick, isActive, hideText = f
   };
 
   const handleDoubleClick = (e) => {
-    if (onDoubleClick && isActive && canDrag) {
+    if (onDoubleClick && isActive && canDrag && renameArmedRef.current) {
+      renameArmedRef.current = false;
       onDoubleClick(e);
     }
   };
 
-  const lastTapRef = useRef(0);
   const handleTouchEnd = (e) => {
     if (!onDoubleClick || !isActive || !canDrag) return;
     const now = Date.now();
