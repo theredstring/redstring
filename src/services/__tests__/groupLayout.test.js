@@ -15,6 +15,7 @@ import {
   GROUP_TITLE_GROW_EASE,
   GROUP_LAYOUT_CONSTANTS as C,
 } from '../groupLayout.js';
+import { deriveGroupVisualBounds } from '../graphLayoutService.js';
 
 const GRID_SIZE = 100;
 const memberPadding = Math.max(24, Math.round(GRID_SIZE * 0.2));
@@ -422,7 +423,25 @@ describe('titles that grow with their group', () => {
     expect(r.label.h).toBeCloseTo(base.label.h * atTwoThousand);
     expect(r.label.fontSize).toBeCloseTo(C.fontSize * atTwoThousand);
     expect(r.rect).toEqual(base.rect);
-    expect(r.nodeGroupRect.h - base.nodeGroupRect.h).toBeCloseTo(base.label.h * (atTwoThousand - 1));
+    // The tab's room grows with the title: above it, and down to the interior.
+    const k = atTwoThousand;
+    expect(r.nodeGroupRect.h - base.nodeGroupRect.h)
+      .toBeCloseTo((base.label.h + C.titleToCanvasGap + C.titleTopMargin) * (k - 1));
+    expect(r.label.y - r.nodeGroupRect.y).toBeCloseTo(C.titleTopMargin * k);
+    expect(r.innerCanvasY - (r.label.y + r.label.h)).toBeCloseTo(C.titleBottomMargin * k);
+  });
+
+  it('a plain group\'s grown title keeps its gap to the band in proportion', () => {
+    const ctx = buildContext({ labelGrowth: growth });
+    addNode(ctx, 'a', 0, 0, 200, 150);
+    addNode(ctx, 'b', 2000 - margin * 2 - 200, 0, 200, 150);
+    const g = { id: 'g', name: 'Short', memberInstanceIds: ['a', 'b'] };
+    addGroup(ctx, g);
+    const r = computeGroupLayout(g, ctx);
+    expect(r.label.growth).toBeCloseTo(atTwoThousand);
+    expect(r.rect.y - (r.label.y + r.label.h)).toBeCloseTo(C.titleToCanvasGap * atTwoThousand);
+    expect(deriveGroupVisualBounds(g, r.bbox, { groupLabelGrowth: growth, measureLabelWidth: measure, gridSize: GRID_SIZE }).y)
+      .toBeCloseTo(r.visualBounds.y);
   });
 
   it('stops at the ceiling', () => {

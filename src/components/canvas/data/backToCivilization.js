@@ -16,7 +16,7 @@ export function computeShouldShowBackToCivilization(ctx) {
     isInitialLoadComplete, isUniverseLoaded, hasUniverseFile, activeGraphId, isViewReady, nodeNamePrompt,
     connectionNamePrompt, abstractionPrompt, abstractionCarouselVisible, selectedNodeIdForPieMenu, plusSign,
     draggingNodeInfo, drawingConnectionFrom, isPanning, selectionStart, nodes,
-    relevantNodesVisibleInStrictViewport,
+    relevantNodesVisibleInStrictViewport, selectedGroupId,
   } = ctx;
   // Only show if:
   // 1. Initial load is complete (startup delay)
@@ -32,8 +32,10 @@ export function computeShouldShowBackToCivilization(ctx) {
   }
 
   // Don't show if any prompts or overlays are visible
+  // A selected group is framed by its title, which for a plain group is no node:
+  // the view can hold none and still be on the group.
   if (nodeNamePrompt.visible || connectionNamePrompt.visible || abstractionPrompt.visible ||
-    abstractionCarouselVisible || selectedNodeIdForPieMenu || plusSign) {
+    abstractionCarouselVisible || selectedNodeIdForPieMenu || selectedGroupId || plusSign) {
     return false;
   }
 
@@ -110,6 +112,7 @@ export function useBackToCivilization({
   const connectionNamePrompt = useCanvasUIStore(s => s.connectionNamePrompt);
   const nodeNamePrompt = useCanvasUIStore(s => s.nodeNamePrompt);
   const selectedNodeIdForPieMenu = useCanvasUIStore(s => s.selectedNodeIdForPieMenu);
+  const selectedGroupId = useCanvasUIStore(s => s.selectedGroupId);
   // Track if the component has been mounted long enough to show BackToCivilization
   const [isInitialLoadComplete, setIsInitialLoadComplete] = useState(false);
   const [backToCivilizationDelayComplete, setBackToCivilizationDelayComplete] = useState(false);
@@ -153,8 +156,8 @@ export function useBackToCivilization({
     isInitialLoadComplete, isUniverseLoaded, hasUniverseFile, activeGraphId, isViewReady, nodeNamePrompt,
     connectionNamePrompt, abstractionPrompt, abstractionCarouselVisible, selectedNodeIdForPieMenu, plusSign,
     draggingNodeInfo, drawingConnectionFrom, isPanning, selectionStart, nodes,
-    relevantNodesVisibleInStrictViewport,
-  }), [isInitialLoadComplete, isUniverseLoaded, hasUniverseFile, activeGraphId, isViewReady, nodes, relevantNodesVisibleInStrictViewport, nodeNamePrompt.visible, connectionNamePrompt.visible, abstractionPrompt.visible, abstractionCarouselVisible, selectedNodeIdForPieMenu, plusSign, draggingNodeInfo, drawingConnectionFrom, isPanning, selectionStart]);
+    relevantNodesVisibleInStrictViewport, selectedGroupId,
+  }), [isInitialLoadComplete, selectedGroupId, isUniverseLoaded, hasUniverseFile, activeGraphId, isViewReady, nodes, relevantNodesVisibleInStrictViewport, nodeNamePrompt.visible, connectionNamePrompt.visible, abstractionPrompt.visible, abstractionCarouselVisible, selectedNodeIdForPieMenu, plusSign, draggingNodeInfo, drawingConnectionFrom, isPanning, selectionStart]);
 
   // Expose clustering functions to window for manual use (for debugging/testing)
   useEffect(() => {

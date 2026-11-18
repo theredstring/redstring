@@ -595,6 +595,16 @@ export const labelGrowthFactor = (growth, bandW, baseLabelW) => {
 export const grownLabelBox = (box, k) => (k === 1 ? box : { ...box, w: box.w * k, h: box.h * k });
 
 /**
+ * The room around a title grown `k` times: between it and its band (a plain
+ * group's band, a Thing-group's interior), and above it in a Thing-group's tab.
+ */
+export const titleGapsFor = (k = 1) => ({
+  toCanvas: GROUP_LAYOUT_CONSTANTS.titleToCanvasGap * k,
+  top: GROUP_LAYOUT_CONSTANTS.titleTopMargin * k,
+  bottom: GROUP_LAYOUT_CONSTANTS.titleBottomMargin * k,
+});
+
+/**
  * A group title's size on the canvas, as computeGroupLayout's context takes it
  * (labelScale, labelFontSize, measureLabelWidth): groupLabelMetrics, with the
  * tab sized from that text. `measureWidth(text, cssFont)` is injected (see
@@ -1035,16 +1045,18 @@ function computeGroupLayoutInner(group, context) {
     rectW = minRectW;
   }
 
+  // The room around the title grows with it, or a grown title crowds its band.
+  const gaps = titleGapsFor(growth);
   const labelX = rectX + (rectW - labelWidth) / 2;
-  const labelY = rectY - labelHeight - C.titleToCanvasGap;
+  const labelY = rectY - labelHeight - gaps.toCanvas;
 
   const isNodeGroup = !!group.linkedNodePrototypeId;
-  const nodeGroupRectY = isNodeGroup ? labelY - C.titleTopMargin : rectY;
+  const nodeGroupRectY = isNodeGroup ? labelY - gaps.top : rectY;
   const nodeGroupRectH = isNodeGroup
     ? (rectY + rectH) - nodeGroupRectY
     : rectH;
   const innerCanvasY = isNodeGroup
-    ? labelY + labelHeight + C.titleBottomMargin
+    ? labelY + labelHeight + gaps.bottom
     : rectY + C.innerCanvasBorder;
 
   const visualTop = isNodeGroup ? nodeGroupRectY : labelY;

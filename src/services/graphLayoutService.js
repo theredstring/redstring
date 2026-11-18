@@ -5,7 +5,7 @@
  * Focuses on predictability, spaciousness, and preventing node overlap.
  */
 
-import { GROUP_LAYOUT_CONSTANTS, labelBoxFor, labelGrowthFactor, grownLabelBox } from './groupLayout.js';
+import { GROUP_LAYOUT_CONSTANTS, labelBoxFor, labelGrowthFactor, grownLabelBox, titleGapsFor } from './groupLayout.js';
 // Shared box/segment geometry. This module imports nothing from services/, so
 // it is safe to pull in ahead of the patternLayouts cycle below.
 import {
@@ -349,7 +349,8 @@ export function deriveGroupVisualBounds(group, bbox, config = {}) {
   const measure = config.measureLabelWidth
     || ((text) => estimateEdgeLabelWidth(text, labelFontSize));
   const baseLabelBox = labelBoxFor(group.name || 'Group', measure, labelScale, labelFontSize);
-  const labelBox = grownLabelBox(baseLabelBox, labelGrowthFactor(config.groupLabelGrowth, rectW, baseLabelBox.w));
+  const growth = labelGrowthFactor(config.groupLabelGrowth, rectW, baseLabelBox.w);
+  const labelBox = grownLabelBox(baseLabelBox, growth);
   const labelWidth = labelBox.w;
   const labelHeight = labelBox.h;
 
@@ -364,9 +365,10 @@ export function deriveGroupVisualBounds(group, bbox, config = {}) {
   }
 
   const labelX = rectX + (rectW - labelWidth) / 2;
-  const labelY = rectY - labelHeight - C.titleToCanvasGap;
+  const gaps = titleGapsFor(growth);
+  const labelY = rectY - labelHeight - gaps.toCanvas;
   const isNodeGroup = !!group.linkedNodePrototypeId;
-  const vTop = isNodeGroup ? labelY - C.titleTopMargin : labelY;
+  const vTop = isNodeGroup ? labelY - gaps.top : labelY;
   const vLeft = Math.min(rectX, labelX);
   const vRight = Math.max(rectX + rectW, labelX + labelWidth);
   const vBottom = rectY + rectH;

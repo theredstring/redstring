@@ -209,15 +209,12 @@ const OPENED_BOX_FLOOR_ZOOM = 0.3;
 
 /**
  * Frame a box that has just opened (a Thing decomposed into its thing group) with
- * its menu, by its size (see OPENED_BOX_TITLE_ZOOM). A selected plain group is
- * framed this way too: its title alone is no node, so framed by it the view
- * would hold nothing (and Back to Civilization would come up).
+ * its menu, by its size (see OPENED_BOX_TITLE_ZOOM).
  *
  * @param {{x, y, w, h}} titleBox - its title pill, canvas units
  * @param {{x, y, w, h}} wholeBox - the box as drawn, title included
- * @param {object} [animation] - the camera move; paced with the box's morph unless given
  */
-export function focusOpenedBoxInViewWith(ctx, titleBox, wholeBox, anchor, buttonCount, zoomAmount = 1.0, animation = { withMorph: true }) {
+export function focusOpenedBoxInViewWith(ctx, titleBox, wholeBox, anchor, buttonCount, zoomAmount = 1.0) {
   const { runFramingAfterCommit, MIN_ZOOM } = ctx;
   if (!FOCUS_ON_SELECT_ENABLED || !titleBox || !wholeBox || !runFramingAfterCommit) return;
   runFramingAfterCommit(() => {
@@ -235,7 +232,7 @@ export function focusOpenedBoxInViewWith(ctx, titleBox, wholeBox, anchor, button
       centerY = whole.top + (whole.vb.height / 2) / tz;
     }
     tz = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, tz));
-    panToGroupFrameWith(ctx, tz, centerX, centerY, whole.vb, animation);
+    panToGroupFrameWith(ctx, tz, centerX, centerY, whole.vb, { withMorph: true });
   });
 }
 

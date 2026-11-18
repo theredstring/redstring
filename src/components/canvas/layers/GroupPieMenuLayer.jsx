@@ -9,9 +9,9 @@
  * (its band's top edge while untitled), from the formula objects.
  *
  * Selecting one frames it with its menu (Settings, Zoom on Select: Groups and
- * Equations; framing.focusGroupInViewWith): a Thing-group by its title, an
- * equation whole, a plain group by its size, as a box that has just opened is
- * framed (groups/openedBoxFrame.js). Shown another way while selected
+ * Equations; framing.focusGroupInViewWith): a group or Thing-group by its
+ * title, an equation whole. A box that has just opened is framed the same way
+ * (groups/openedBoxFrame.js). Shown another way while selected
  * (pie/groupPieButtons.reframeGroup), it is framed again, whole, as what it
  * becomes.
  *
@@ -71,13 +71,6 @@ function selectionFrameOf(groupId, groupLayouts, formulaObjects) {
   return groupBoxOf(groupId, groupLayouts, formulaObjects);
 }
 
-/** A group that is neither a Thing-group nor shown as a formula. */
-function isPlainGroup(groupId, groupLayouts, formulaObjects) {
-  if (formulaObjects.objects.some(o => o.groupId === groupId)) return false;
-  const group = groupLayouts?.entries?.find(e => e.group.id === groupId)?.group;
-  return !!group && !group.linkedNodePrototypeId;
-}
-
 function GroupPieMenuLayer({
   groupLayouts, editingGroupId, dragging, abstractionCarouselVisible, semanticOrbitActive, nodeScale, onHoverChange,
   cameraCtxRef,
@@ -126,11 +119,6 @@ function GroupPieMenuLayer({
     const whole = groupBoxOf(groupId, l.groupLayouts, l.formulaObjects);
     // Just opened: framed by how big it is, its title and menu always in view.
     if (opened && box && whole) focusOpenedBoxInViewWith(ctx, box, whole, l.anchor, l.buttonCount, zoomAmount);
-    // A plain group the same way, as a plain move: its title is no node, and
-    // framed by it alone the view would hold none of its Things.
-    else if (box && whole && isPlainGroup(groupId, l.groupLayouts, l.formulaObjects)) {
-      focusOpenedBoxInViewWith(ctx, box, whole, l.anchor, l.buttonCount, zoomAmount, {});
-    }
     else if (box) focusGroupInViewWith(ctx, box, l.anchor, l.buttonCount, zoomAmount);
   }, [groupId, live, focusEnabled, zoomAmount, cameraCtxRef]);
 
