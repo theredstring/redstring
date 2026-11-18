@@ -65,7 +65,7 @@ describe('cognitive moves over the real store', () => {
     const { world, ids, ctx } = await setup({
       webs: { Water: { things: { River: 'flowing', Lake: 'still', Sea: 'salty' }, links: [['River', 'Sea', 'flows into']] } }
     }, 'River');
-    expect(differences(world, ids.River, ids.Lake, Object.values(world.state().graphs).length ? world.websOf(ids.River)[0] : null)).toEqual([expect.stringMatching(/only River is connected: flows into Sea/i)]);
+    expect(differences(world, ids.River, ids.Lake, world.websOf(ids.River)[0])).toEqual([expect.stringMatching(/only River is connected: flows into Sea/i)]);
     const r = await contrast.run(ctx({ ask: answers(['a river moves, a lake does not']) }), { a: ids.River, b: ids.Lake });
     expect(r.ok).toBe(true);
     const belief = world.allThings().find(id => roleOf(world, id) === 'belief');
