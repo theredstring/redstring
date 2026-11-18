@@ -6,7 +6,7 @@
 // The page clock is slowed while a morph runs, so the middle of it can be
 // checked without racing a 380 ms animation.
 import {
-  test, expect, storeEval, openFixture, pieButton, openPieMenu, waitForCameraSettled, nextFrames,
+  test, expect, storeEval, openFixture, pieButton, openPieMenu, waitForCameraSettled, nextFrames, showControlPanels,
 } from './helpers.js';
 
 const WEB = 'g-small-a';
@@ -66,6 +66,7 @@ test('F41 Decompose Further morphs the preview into the box, then hands over to 
 });
 
 test('F41 combining the box folds it back into its node', async ({ page }) => {
+  await showControlPanels(page); // combined from the Thing-group panel, off by default
   await slowableClock(page);
   await openClusterPreview(page);
   await pieButton(page, 'package-open').click();
@@ -139,6 +140,7 @@ const crossingState = (page) => page.evaluate((ids) => {
 }, CROSSING);
 
 test('F41 connections crossing the box stay attached while it opens and folds', async ({ page }) => {
+  await showControlPanels(page); // combined from the Thing-group panel, off by default
   await slowableClock(page);
   await openFixture(page, 'small');
   await storeEval(page, (st, [w, g]) => st.collapseNodeGroupIntoDefinition(w, g), [WEB, OLD_COPY_GROUP]);

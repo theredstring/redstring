@@ -199,8 +199,8 @@ const SettingsModal = ({ isVisible, onClose }) => {
   const showNodeControlPanel = useGraphStore(s => s.showNodeControlPanel ?? false);
   const showMultipleNodesControlPanel = useGraphStore(s => s.showMultipleNodesControlPanel ?? true);
   const showConnectionControlPanel = useGraphStore(s => s.showConnectionControlPanel ?? false);
-  const showGroupControlPanel = useGraphStore(s => s.showGroupControlPanel ?? true);
-  const showEquationControlPanel = useGraphStore(s => s.showEquationControlPanel ?? true);
+  const showGroupControlPanel = useGraphStore(s => s.showGroupControlPanel ?? false);
+  const showEquationControlPanel = useGraphStore(s => s.showEquationControlPanel ?? false);
   const showAbstractionControlPanel = useGraphStore(s => s.showAbstractionControlPanel ?? false);
 
   // Counting happens on the way in, so the fifth tap is the one that reveals it.
@@ -1129,7 +1129,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
           </div>
           <div className="settings-row">
             <div className="settings-row-label">
-              Thing-Groups and Equations
+              Groups and Equations
               <div className="settings-row-description">Frame the whole group when you select it.</div>
             </div>
             <Toggle

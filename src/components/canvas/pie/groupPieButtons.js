@@ -1,12 +1,11 @@
 /**
- * The group pie's buttons: the menu a selected Thing-group or equation shows
- * above its title, laid out like the connection pie (PieMenu's line mode,
+ * The group pie's buttons: the menu a selected group, Thing-group or equation
+ * shows above its title, laid out like the connection pie (PieMenu's line mode,
  * always level).
  *
  * The actions are the group control panel's own handlers (ControlPanelsHost
  * builds them), in the panel's order, so the pie and the panel do the same
  * thing. ControlPanelsHost publishes the list here; GroupPieMenuLayer draws it.
- * A plain group (not a Thing-group, not shown as a formula) gets no pie.
  */
 import { dimEditsWhenReadOnly } from './readOnlyButtons.js';
 import { create } from 'zustand';
@@ -70,9 +69,20 @@ const rectAt = (pos) => (pos ? { left: pos.x - 20, top: pos.y - 20, width: 40, h
  * @param {object} ctx.handlers - the panel's handlers
  */
 export function buildGroupPieButtons({ mode, group, formulaText, currentFormat, formulaNames, standardNotation, handlers }) {
-  if (!group || (mode !== 'nodegroup' && mode !== 'format')) return NO_BUTTONS;
+  if (!group) return NO_BUTTONS;
   const isThingGroup = !!group.linkedNodePrototypeId;
   const h = handlers;
+
+  // A plain group: the panel's four, in its order.
+  if (mode === 'group') {
+    return dimEditsWhenReadOnly([
+      { id: 'group-ungroup', label: 'Ungroup', icon: Ungroup, action: () => h.onUngroup() },
+      { id: 'group-edit', label: 'Edit Name', icon: Edit3, action: () => h.onEdit() },
+      { id: 'group-color', label: 'Change Color', icon: Palette, action: (_id, pos) => h.onColor(pos) },
+      { id: 'group-convert', label: 'Convert to Thing-Group', icon: SquarePlus, action: () => h.onConvertToNodeGroup() },
+    ]);
+  }
+  if (mode !== 'nodegroup' && mode !== 'format') return NO_BUTTONS;
   const buttons = [];
 
   // Formula, or its Things: the panel's ◀ ▶, as one button (there are two formats).

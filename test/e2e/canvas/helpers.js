@@ -61,6 +61,22 @@ export function chambersPath() {
  * Open a committed fixture and wait until the canvas is interactive: store
  * loaded, nodes painted, fonts settled, camera written.
  */
+/**
+ * Turn the control panels that are off by default back on (Settings, Control
+ * Panels), for flows that drive a panel. Call before openFixture.
+ */
+export async function showControlPanels(page) {
+  await page.addInitScript(() => {
+    window.__fixtureStorageSeed = {
+      ...(window.__fixtureStorageSeed || {}),
+      redstring_show_connection_cp: 'true',
+      redstring_show_group_cp: 'true',
+      redstring_show_equation_cp: 'true',
+      redstring_show_abstraction_cp: 'true',
+    };
+  });
+}
+
 export async function openFixture(page, name = 'small', query = '') {
   // External requests are also blocked in-page by the fixture sandbox. Doing it
   // here too keeps a run independent of the network.

@@ -12,7 +12,7 @@
 // interactions (their own specs keep asserting what they assert).
 import { expect } from '@playwright/test';
 import {
-  openFixture, openPieMenu, pieButton, clickCenter, waitForCameraSettled, expectBareCanvas,
+  openFixture, openPieMenu, pieButton, clickCenter, waitForCameraSettled, expectBareCanvas, showControlPanels,
 } from './helpers.js';
 import { startLifecycleTrace, waitForQuiet } from './lifecycleTrace.js';
 
@@ -34,11 +34,14 @@ export const uiField = (page, name) => page.evaluate(async (n) => {
 }, name);
 
 /**
- * Open the fixture and start tracing from a settled canvas. `nodePanel: true`
- * turns on the single-node control panel (off by default, so the default
- * scenarios never show it) to bring its latches into the trace.
+ * Open the fixture and start tracing from a settled canvas. The traces follow
+ * the connection, group, equation and carousel panels, so those are turned on
+ * (off by default). `nodePanel: true` turns on the single-node control panel
+ * too (left off otherwise, so the default scenarios never show it) to bring its
+ * latches into the trace.
  */
 async function begin(page, { nodePanel = false } = {}) {
+  await showControlPanels(page);
   await openFixture(page, 'small');
   if (nodePanel) {
     await page.evaluate(() => {

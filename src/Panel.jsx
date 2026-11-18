@@ -945,11 +945,23 @@ const Panel = memo(
       recalcSectionMaxHeights();
     }, [recalcSectionMaxHeights]);
 
-    // Recalculate section heights after panel resize finishes (not during drag)
+    // Recalculate section heights as the panel is resized, during the drag as
+    // well as at its end: text rewraps as the width changes, and a section held
+    // at its old height clips (or gaps) until release. Once per frame, after the
+    // panel has taken the new width.
     useEffect(() => {
-      const onResizeEnd = () => recalcSectionMaxHeights();
-      window.addEventListener('panelWidthChanged', onResizeEnd);
-      return () => window.removeEventListener('panelWidthChanged', onResizeEnd);
+      let frame = 0;
+      const schedule = () => {
+        if (frame) return;
+        frame = requestAnimationFrame(() => { frame = 0; recalcSectionMaxHeights(); });
+      };
+      window.addEventListener('panelWidthChanging', schedule);
+      window.addEventListener('panelWidthChanged', schedule);
+      return () => {
+        if (frame) cancelAnimationFrame(frame);
+        window.removeEventListener('panelWidthChanging', schedule);
+        window.removeEventListener('panelWidthChanged', schedule);
+      };
     }, [recalcSectionMaxHeights]);
 
 
@@ -1357,9 +1369,13 @@ const Panel = memo(
       }
     }, [panelWidth, lastCustomWidth, side]);
 
-    // Listen for external resizer overlay updates from NodeCanvas for low-latency sync
-    // During drag: mutate DOM directly via ref (zero React re-renders)
-    // On drag end: sync final width to React state
+    // Follow the overlay resizer (PanelResizers) as it is dragged. The width
+    // goes onto the DOM node at once and into state every frame (PanelResizers
+    // sends at most one event per frame), so what the panel lays out from its
+    // width — grid columns and card sizes, the wizard's compact mode — follows
+    // the drag instead of settling on release. Re-rendering the panel per frame
+    // of a panel drag is the point; the canvas does not re-render for it.
+    // On drag end the final width is also persisted.
     useEffect(() => {
       const onChanging = (e) => {
         if (!e?.detail) return;
@@ -1367,6 +1383,7 @@ const Panel = memo(
         if (evtSide === side && typeof width === 'number' && panelRef.current) {
           dragLiveWidthRef.current = width;
           panelRef.current.style.width = `${width}px`;
+          setPanelWidth(prev => (prev === width ? prev : width));
           // Update layout modes when crossing a threshold (at most 1 re-render
           // per crossing — same-value setState bails out)
           const nowWide = width > 250;
@@ -1430,10 +1447,8 @@ const Panel = memo(
     // --- End Resize Handlers & related effects ---
 
     // --- Determine Active View/Tab ---
-    // Not derived from panelWidth: while the NodeCanvas overlay resizer is being
-    // dragged the panel's width is mutated on the DOM node directly and
-    // panelWidth stays stale until drag end, so this is driven by the live
-    // `panelWidthChanging` events too (crossings only — see the listener below).
+    // Tracked on crossings (same-value setState bails out). The overlay resizer
+    // also sets them from its live `panelWidthChanging` events (the listener above).
     const [isUltraSlim, setIsUltraSlim] = useState(() => panelWidth <= ULTRA_SLIM_WIDTH);
     const [isWideLayout, setIsWideLayout] = useState(() => panelWidth > 250);
     // Keep it honest for every non-drag path that moves the width (initial load,
@@ -1463,9 +1478,8 @@ const Panel = memo(
       return defs;
     }, [side, enableWizard, thingsScope]);
 
-    // Measured rather than derived from panelWidth: during an overlay resize
-    // drag the width is mutated straight onto the DOM node and panelWidth stays
-    // stale (same reason isUltraSlim is tracked the way it is above).
+    // Measured rather than derived from panelWidth: the strip is narrower than
+    // the panel, and what fits is decided by the strip itself.
     const leftTabStripRef = useRef(null);
     const [leftTabStripWidth, setLeftTabStripWidth] = useState(null);
     // Gate for the tabs' width transition. The strip's first render assumes

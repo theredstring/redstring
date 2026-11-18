@@ -52,6 +52,7 @@ test('F38b Palette on a defined connection recolours its Thing; deselecting clos
   // picker as a click-away); the picker follows the selection.
   await storeEval(page, (st) => { st.setSelectedEdgeId(null); st.setSelectedEdgeIds(new Set()); });
   await expect(picker(page)).toHaveCount(0);
-  const bare = { x: 1000, y: 620 };
+  // Empty canvas above Cluster, as the connection is framed with its panel off.
+  const bare = { x: 1000, y: 250 };
   await expectBareCanvas(page, bare);
 });

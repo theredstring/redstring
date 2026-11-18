@@ -2294,9 +2294,9 @@ const useGraphStore = create(saveCoordinatorMiddleware((set, get, api) => {
     })(),
     showNodeControlPanel: (() => { try { const s = localStorage.getItem('redstring_show_node_cp'); return s === null ? false : s === 'true'; } catch (_) { return false; } })(),
     showMultipleNodesControlPanel: (() => { try { const s = localStorage.getItem('redstring_show_multi_node_cp'); return s === null ? true : s === 'true'; } catch (_) { return true; } })(),
-    showConnectionControlPanel: (() => { try { const s = localStorage.getItem('redstring_show_connection_cp'); return s === null ? true : s === 'true'; } catch (_) { return true; } })(),
-    showGroupControlPanel: (() => { try { const s = localStorage.getItem('redstring_show_group_cp'); return s === null ? true : s === 'true'; } catch (_) { return true; } })(),
-    showEquationControlPanel: (() => { try { const s = localStorage.getItem('redstring_show_equation_cp'); return s === null ? true : s === 'true'; } catch (_) { return true; } })(),
+    showConnectionControlPanel: (() => { try { const s = localStorage.getItem('redstring_show_connection_cp'); return s === 'true'; } catch (_) { return false; } })(),
+    showGroupControlPanel: (() => { try { const s = localStorage.getItem('redstring_show_group_cp'); return s === 'true'; } catch (_) { return false; } })(),
+    showEquationControlPanel: (() => { try { const s = localStorage.getItem('redstring_show_equation_cp'); return s === 'true'; } catch (_) { return false; } })(),
     showAbstractionControlPanel: (() => { try { const s = localStorage.getItem('redstring_show_abstraction_cp'); return s === 'true'; } catch (_) { return false; } })(),
     hoverPreviewSize: (() => {
       try {

@@ -9,7 +9,7 @@
 // are blocked (see the guards in useCanvasKeyboard and AbstractionCarousel).
 import {
   test, expect,
-  openFixture, camera, waitForCameraSettled, activeGraphSnapshot, pieButton, clickCenter, openPieMenu,
+  openFixture, showControlPanels, camera, waitForCameraSettled, activeGraphSnapshot, pieButton, clickCenter, openPieMenu,
 } from './helpers.js';
 
 const carouselEntries = (page) => page.evaluate(() => [...document.querySelectorAll('[data-carousel-level]')]
@@ -23,6 +23,7 @@ async function focusedLevel(page) {
 }
 
 test('F9 the abstraction carousel opens, steps, locks the view, and closes', async ({ page }) => {
+  await showControlPanels(page); // its panel, off by default
   await openFixture(page, 'small');
   await openPieMenu(page, 'i-alpha');
 

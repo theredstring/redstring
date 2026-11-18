@@ -31,14 +31,13 @@ describe('useElementWidth', () => {
     expect(seen.at(-1)).toBe(420);
   });
 
-  it('holds through a panel drag and measures once on release', async () => {
+  it('follows a panel drag frame by frame', () => {
     const seen = [];
     render(<Probe onWidth={(w) => seen.push(w)} />);
-    const rendersBefore = seen.length;
-    act(() => { panel('panelWidthChanging'); resize(350); resize(400); resize(450); });
-    expect(seen.length).toBe(rendersBefore);
-    await act(async () => { panel('panelWidthChanged'); await new Promise((r) => requestAnimationFrame(r)); });
+    act(() => panel('panelWidthChanging'));
+    act(() => resize(350));
+    expect(seen.at(-1)).toBe(350);
+    act(() => resize(450));
     expect(seen.at(-1)).toBe(450);
-    expect(seen.length).toBe(rendersBefore + 1);
   });
 });

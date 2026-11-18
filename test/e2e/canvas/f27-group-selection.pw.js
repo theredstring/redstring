@@ -1,9 +1,10 @@
 // F27: the group panel shows the group as it is now. Since P2.03b the selected
 // group is an id in canvasUIStore and the group is read from the active web;
 // before, it was a snapshot, so an edit made elsewhere left the panel stale.
-import { test, expect, openFixture, activeGraphSnapshot, clickCenter, storeEval } from './helpers.js';
+import { test, expect, openFixture, activeGraphSnapshot, clickCenter, storeEval, showControlPanels, waitForCameraSettled } from './helpers.js';
 
 test('F27 renaming the selected group in the store updates its control panel', async ({ page }) => {
+  await showControlPanels(page);
   await openFixture(page, 'small');
   const before = await activeGraphSnapshot(page);
   const [pairId] = Object.entries(before.groups).find(([, g]) => g.name === 'Pair');
@@ -14,4 +15,27 @@ test('F27 renaming the selected group in the store updates its control panel', a
 
   await storeEval(page, (st, id) => st.updateGroup(st.activeGraphId, id, (g) => { g.name = 'Renamed Pair'; }), pairId);
   await expect(panel).toContainText('Renamed Pair');
+});
+
+test('F27 a selected plain group shows its pie, the group panel off by default', async ({ page }) => {
+  await openFixture(page, 'small');
+  const before = await activeGraphSnapshot(page);
+  const [pairId] = Object.entries(before.groups).find(([, g]) => g.name === 'Pair');
+
+  await clickCenter(page, page.locator(`svg.canvas g.group[data-group-id="${pairId}"] g.group-label`).first());
+  const pie = page.locator('svg.canvas g.pie-menu');
+  for (const icon of ['ungroup', 'pen-line', 'palette', 'square-plus']) {
+    await expect(pie.locator(`svg.lucide-${icon}`)).toHaveCount(1);
+  }
+  await expect(page.locator('.unified-bottom-panel')).toHaveCount(0);
+
+  // Framed by its size, not its title alone: its Things stay on screen.
+  await waitForCameraSettled(page);
+  const area = await page.locator('.canvas-area').boundingBox();
+  for (const instanceId of before.groups[pairId].memberInstanceIds) {
+    const b = await page.locator(`svg.canvas g.node[data-instance-id="${instanceId}"]`).first().boundingBox();
+    expect(b, `${instanceId} drawn`).not.toBeNull();
+    expect(b.x + b.width > area.x && b.x < area.x + area.width && b.y + b.height > area.y && b.y < area.y + area.height,
+      `${instanceId} on screen`).toBe(true);
+  }
 });

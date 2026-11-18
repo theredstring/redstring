@@ -73,9 +73,9 @@ export default function ControlPanelsHost({ ctx }) {
   const setSelectedGroup = (group) => useCanvasUIStore.getState().setSelectedGroupId(group?.id ?? null);
   const showNodeControlPanel = useGraphStore((state) => state.showNodeControlPanel ?? false);
   const showMultipleNodesControlPanel = useGraphStore((state) => state.showMultipleNodesControlPanel ?? true);
-  const showConnectionControlPanel = useGraphStore((state) => state.showConnectionControlPanel ?? true);
-  const showGroupControlPanel = useGraphStore((state) => state.showGroupControlPanel ?? true);
-  const showEquationControlPanel = useGraphStore((state) => state.showEquationControlPanel ?? true);
+  const showConnectionControlPanel = useGraphStore((state) => state.showConnectionControlPanel ?? false);
+  const showGroupControlPanel = useGraphStore((state) => state.showGroupControlPanel ?? false);
+  const showEquationControlPanel = useGraphStore((state) => state.showEquationControlPanel ?? false);
   const showAbstractionControlPanel = useGraphStore((state) => state.showAbstractionControlPanel ?? false);
   // The group the panel is about, read through to the active web so a rename or
   // recolour elsewhere shows up (P2.03b). Read as viewed: an open box's group
@@ -482,7 +482,7 @@ export default function ControlPanelsHost({ ctx }) {
   };
 
   // The group pie (pie/groupPieButtons.js): this panel's actions, drawn above a
-  // selected Thing-group's or equation's title by GroupPieMenuLayer. Its buttons
+  // selected group's, Thing-group's or equation's title by GroupPieMenuLayer. Its buttons
   // call through a ref, so the list is rebuilt only when the set changes.
   const groupPieHandlersRef = useRef(null);
   groupPieHandlersRef.current = {

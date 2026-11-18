@@ -27,8 +27,11 @@ test('F32 click selects the group; double-click renames on Enter and cancels on 
   await page.mouse.click(at.x, at.y);
   await expect.poll(() => selectedGroupId(page)).toBe(g.id);
 
+  // Selecting it frames it (Zoom on Select), so its title has moved.
   await page.waitForTimeout(CLICK_DELAY_MS + 400);
-  await page.mouse.dblclick(at.x, at.y);
+  await waitForCameraSettled(page);
+  const framed = centerOf(await pill(page, g.id).boundingBox());
+  await page.mouse.dblclick(framed.x, framed.y);
   const field = page.locator('svg.canvas foreignObject textarea');
   await expect(field).toBeVisible();
   await expect(field).toHaveValue(g.name);

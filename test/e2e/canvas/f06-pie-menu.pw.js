@@ -5,7 +5,7 @@
 import {
   test, expect,
   openFixture, selectedNodeIds, storeEval, expectBareCanvas, pieButton, openPieMenu, clickCenter,
-  activeGraphSnapshot, edgePoint, selectedEdgeIds, waitForCameraSettled,
+  activeGraphSnapshot, edgePoint, selectedEdgeIds, waitForCameraSettled, showControlPanels,
 } from './helpers.js';
 
 test('F6 click opens the pie menu; Save and Open in Panel work; clicking off closes it', async ({ page }) => {
@@ -70,6 +70,7 @@ async function openInPanelFromBottomPanel(page, panelSelector, nodeId) {
 }
 
 test('F6c a connection panel closes on Open in Panel', async ({ page }) => {
+  await showControlPanels(page);
   await openFixture(page, 'small');
   await storeEval(page, (st) => st.updateEdge('e-beta-gamma', (d) => { d.definitionNodeIds = ['p-gamma']; }));
   const p = await edgePoint(page, 'e-beta-gamma', 0.35);
@@ -82,6 +83,7 @@ test('F6c a connection panel closes on Open in Panel', async ({ page }) => {
 });
 
 test('F6d a Thing-group panel closes on Open in Panel', async ({ page }) => {
+  await showControlPanels(page);
   await openFixture(page, 'small');
   const before = await activeGraphSnapshot(page);
   const [pairId] = Object.entries(before.groups).find(([, g]) => g.name === 'Pair');
@@ -91,6 +93,7 @@ test('F6d a Thing-group panel closes on Open in Panel', async ({ page }) => {
 });
 
 test('F6e the carousel panel closes on Open in Panel', async ({ page }) => {
+  await showControlPanels(page);
   await openFixture(page, 'small');
   await openPieMenu(page, 'i-alpha');
   await clickCenter(page, pieButton(page, 'layers'));

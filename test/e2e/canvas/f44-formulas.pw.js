@@ -21,7 +21,7 @@
 // FORMULA_SHOTS=<dir> also saves screenshots of each step.
 import {
   test, expect, openFixture, storeEval, activeGraphSnapshot, nextFrames, NODE_LIFT_DELAY_MS, findBareSpot, camera,
-  nodeBox, centerOf,
+  nodeBox, centerOf, showControlPanels,
 } from './helpers.js';
 
 // In the small fixture's empty lower half, far enough left that a long formula
@@ -53,7 +53,8 @@ async function pointAt(page, locator, { click = false } = {}) {
 }
 const liftedTransform = () => currentPage.locator('svg.canvas g.formula-object').evaluate(el => el.style.transform || '');
 let currentPage = null;
-test.beforeEach(({ page }) => { currentPage = page; });
+// Its flows drive the equation and Thing-group panels, off by default.
+test.beforeEach(async ({ page }) => { currentPage = page; await showControlPanels(page); });
 const expanded = (page) => object(page).locator('g.formula-object-token.is-expanded');
 // The group panel comes up over the lower canvas when the formula is selected: put it down.
 const putPanelDown = async (page) => {

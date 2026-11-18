@@ -132,7 +132,7 @@ export function focusEdgePieMenuInViewWith(ctx, anchor, buttonCount, labelRect =
   const centerY = (minY + maxY) / 2;
 
   // Selecting a single connection puts up the connection control panel as well as
-  // this menu (showConnectionControlPanel, on by default), and the panel is wide and
+  // this menu (showConnectionControlPanel, off by default), and the panel is wide and
   // tall enough to swallow a button row framed into the full region — so aim at the
   // gap above it when it's there.
   const vb = getFramingRegion({ reserveBottomPanel: true });
@@ -209,12 +209,15 @@ const OPENED_BOX_FLOOR_ZOOM = 0.3;
 
 /**
  * Frame a box that has just opened (a Thing decomposed into its thing group) with
- * its menu, by its size (see OPENED_BOX_TITLE_ZOOM).
+ * its menu, by its size (see OPENED_BOX_TITLE_ZOOM). A selected plain group is
+ * framed this way too: its title alone is no node, so framed by it the view
+ * would hold nothing (and Back to Civilization would come up).
  *
  * @param {{x, y, w, h}} titleBox - its title pill, canvas units
  * @param {{x, y, w, h}} wholeBox - the box as drawn, title included
+ * @param {object} [animation] - the camera move; paced with the box's morph unless given
  */
-export function focusOpenedBoxInViewWith(ctx, titleBox, wholeBox, anchor, buttonCount, zoomAmount = 1.0) {
+export function focusOpenedBoxInViewWith(ctx, titleBox, wholeBox, anchor, buttonCount, zoomAmount = 1.0, animation = { withMorph: true }) {
   const { runFramingAfterCommit, MIN_ZOOM } = ctx;
   if (!FOCUS_ON_SELECT_ENABLED || !titleBox || !wholeBox || !runFramingAfterCommit) return;
   runFramingAfterCommit(() => {
@@ -232,7 +235,7 @@ export function focusOpenedBoxInViewWith(ctx, titleBox, wholeBox, anchor, button
       centerY = whole.top + (whole.vb.height / 2) / tz;
     }
     tz = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, tz));
-    panToGroupFrameWith(ctx, tz, centerX, centerY, whole.vb, { withMorph: true });
+    panToGroupFrameWith(ctx, tz, centerX, centerY, whole.vb, animation);
   });
 }
 
