@@ -45,15 +45,37 @@ class WorkspaceService {
             if (this.config && this.config.activeUniverse) {
                 vlog('[WorkspaceService] Active universe found in config:', this.config.activeUniverse);
                 return { status: 'READY', activeUniverse: this.config.activeUniverse };
-            } else {
-                vlog('[WorkspaceService] Config loaded but no active universe set.');
-                return { status: 'SELECT_UNIVERSE' };
             }
+            if (await this.isUntouchedManagedFolder()) {
+                vlog('[WorkspaceService] Managed folder is empty. Setup required.');
+                return { status: 'NEEDS_ONBOARDING' };
+            }
+            vlog('[WorkspaceService] Config loaded but no active universe set.');
+            return { status: 'SELECT_UNIVERSE' };
 
         } catch (error) {
             console.warn('[WorkspaceService] Config file not found or invalid:', error);
             // If no config exists, we don't auto-load anything.
             return { status: 'SELECT_UNIVERSE' };
+        }
+    }
+
+    /**
+     * On iOS and Android the folder is the app's own Universes/, there from the
+     * first launch whether or not anyone set anything up, so it being valid
+     * says nothing about the person. Empty, with no config, it is a fresh
+     * install (or one deleted and installed again): onboarding, not the grid.
+     * A folder the person picked (desktop, web) only exists after onboarding.
+     */
+    async isUntouchedManagedFolder() {
+        const { isCapacitor, capListFiles } = await import('../utils/capacitorAdapter.js');
+        if (!isCapacitor()) return false;
+        if (this.config && Object.keys(this.config).length > 0) return false;
+        try {
+            const files = await capListFiles(this.folderHandle);
+            return files.length === 0;
+        } catch {
+            return false;
         }
     }
 

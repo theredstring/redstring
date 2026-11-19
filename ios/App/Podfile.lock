@@ -2,19 +2,19 @@ PODS:
   - AparajitaCapacitorSecureStorage (7.1.6):
     - Capacitor
     - KeychainSwift (~> 21.0)
-  - Capacitor (7.6.9):
+  - Capacitor (7.6.10):
     - CapacitorCordova
   - CapacitorApp (7.1.2):
     - Capacitor
   - CapacitorBrowser (7.0.5):
     - Capacitor
-  - CapacitorCordova (7.6.9)
-  - CapacitorFilesystem (7.1.8):
+  - CapacitorCordova (7.6.10)
+  - CapacitorFilesystem (7.1.9):
     - Capacitor
-    - IONFilesystemLib (~> 1.1.1)
+    - IONFilesystemLib (~> 1.1.4)
   - CapacitorHaptics (7.0.5):
     - Capacitor
-  - IONFilesystemLib (1.1.2)
+  - IONFilesystemLib (1.1.4)
   - KeychainSwift (21.0.0)
   - RedstringAppleModel (1.0.0):
     - Capacitor
@@ -54,13 +54,13 @@ EXTERNAL SOURCES:
 
 SPEC CHECKSUMS:
   AparajitaCapacitorSecureStorage: 502bff73187cf9d0164459458ccf47ec65d5895a
-  Capacitor: 46067d1c8df89760dbed78780d436327d588c726
+  Capacitor: f50a57c9ce466bce30d574e1348ab25b1f572536
   CapacitorApp: f01a913211780e0718dae9750442c3e23f96e106
   CapacitorBrowser: 6d09f59655e89aede71654ef08b98de55cf032b6
-  CapacitorCordova: 2080fc0d6bfbc9dcc0e6d88e77fa624190d343ca
-  CapacitorFilesystem: c63fc54df41e5a6761785a7f3c49dc696c22e296
+  CapacitorCordova: 33313bf8891d44741970e16534be781ff3caa00a
+  CapacitorFilesystem: 35da521d3fc5159ecaf4ae0b877ec3db7f4adb0d
   CapacitorHaptics: 1b145fa83c622e5383a3bac04ea81e2514f0b0f5
-  IONFilesystemLib: 21a63377696b2d8fab5632ecfb7d2ac67bddb68a
+  IONFilesystemLib: e6610c2b260d15e4b9cb9d5e37a87095479b669e
   KeychainSwift: 4a71a45c802fd9e73906457c2dcbdbdc06c9419d
   RedstringAppleModel: dbbe392cdd33383110176940f7d567e0078b914a
 

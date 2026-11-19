@@ -2,10 +2,10 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import CanvasModal from './CanvasModal';
 import GitHubConnectPanel from './shared/GitHubConnectPanel.jsx';
 import PanelIconButton from './shared/PanelIconButton.jsx';
-import { isElectron } from '../utils/fileAccessAdapter.js';
+import { isElectron, hasFileSystemAccess, pickFile } from '../utils/fileAccessAdapter.js';
 import { isCapacitor, usesPathHandles } from '../utils/capacitorAdapter.js';
 import {
-  FolderOpen, Folder, ArrowRight, ArrowLeft, Github, Lock, Globe,
+  FolderOpen, Folder, ArrowRight, ArrowLeft, Github, Lock, Globe, FileText, Link,
   Loader2, CheckCircle, AlertCircle, Circle, RefreshCw, Save, X, Star, Upload, Key
 } from 'lucide-react';
 import { useTheme } from '../hooks/useTheme.js';
@@ -87,6 +87,7 @@ const StorageSetupModal = ({
   onUniverseReady = null, // ({ slug, name, warnings }) => void — a slot was filled; load it into the shell, keep modal open
   onFinishOnboarding = null, // () => void — finalize: mark seen + close (user is already in a universe)
   onBrowserStorageSelected = null,
+  onOpenExisting = null, // (request) => void — Open an Existing Universe: { source: 'file', file } | { source: 'handle', handle } | { source: 'repo' } | { source: 'link' }
   ...canvasModalProps
 }) => {
   const theme = useTheme();
@@ -522,6 +523,76 @@ const StorageSetupModal = ({
     </div>
   );
 
+  // Open an Existing Universe: a file stays linked where the platform can keep
+  // it (desktop, a browser with file access), and comes in as a copy where it
+  // can't (iOS, Android, other browsers). Picked here, inside the click, so the
+  // picker isn't blocked; the Universes panel does the loading.
+  const openExistingFile = async () => {
+    if (!isCapacitor() && (isElectron() || hasFileSystemAccess())) {
+      try {
+        const handle = await pickFile();
+        if (handle) onOpenExisting?.({ source: 'handle', handle });
+      } catch (err) {
+        if (err?.name !== 'AbortError' && !/returned no file/i.test(err?.message || '')) {
+          console.warn('[StorageSetupModal] Open existing file failed:', err);
+        }
+      }
+      return;
+    }
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.redstring';
+    input.onchange = () => {
+      const file = input.files?.[0];
+      if (file) onOpenExisting?.({ source: 'file', file });
+    };
+    input.click();
+  };
+
+  const renderOpenExistingCard = () => (
+    <div
+      style={{
+        backgroundColor: theme.darkMode ? 'rgba(255,255,255,0.05)' : '#DEDADA',
+        border: `2px solid ${theme.canvas.border}`,
+        borderRadius: '8px',
+        padding: isCompactLayout ? '12px' : '14px',
+        marginBottom: '12px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '12px',
+        flexWrap: 'wrap'
+      }}
+    >
+      <div style={{ flexShrink: 0, color: theme.canvas.textPrimary, display: 'flex', alignItems: 'center' }}>
+        <FolderOpen size={22} />
+      </div>
+      <div style={{ flex: 1, minWidth: 140 }}>
+        <h3 style={{
+          margin: 0,
+          fontSize: isCompactLayout ? '0.92rem' : '1rem',
+          fontWeight: 'bold',
+          color: theme.canvas.textPrimary,
+          fontFamily: "'EmOne', sans-serif"
+        }}>
+          Open an Existing Universe
+        </h3>
+        <p style={{
+          margin: '2px 0 0 0',
+          fontSize: isCompactLayout ? '0.72rem' : '0.78rem',
+          color: theme.canvas.textSecondary,
+          lineHeight: '1.35'
+        }}>
+          From a file, a repository or a link
+        </p>
+      </div>
+      <div style={{ display: 'flex', gap: 6, flexShrink: 0, flexWrap: 'wrap' }}>
+        <PanelIconButton icon={FileText} size={14} label="File" variant="outline" onClick={openExistingFile} style={{ whiteSpace: 'nowrap' }} />
+        <PanelIconButton icon={Github} size={14} label="Repository" variant="outline" onClick={() => onOpenExisting?.({ source: 'repo' })} style={{ whiteSpace: 'nowrap' }} />
+        <PanelIconButton icon={Link} size={14} label="Link" variant="outline" onClick={() => onOpenExisting?.({ source: 'link' })} style={{ whiteSpace: 'nowrap' }} />
+      </div>
+    </div>
+  );
+
   const renderSlotsStep = () => (
     <>
       <style>{'@keyframes rs-onboarding-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }'}</style>
@@ -702,6 +773,8 @@ const StorageSetupModal = ({
           actionSolid: gitFirst
         })}
 
+        {!anySlotFilled && onOpenExisting && renderOpenExistingCard()}
+
         {/* Source of truth line, once at least one slot is filled */}
         {anySlotFilled && (
           <div style={{
@@ -768,7 +841,7 @@ const StorageSetupModal = ({
               }}
               title="Start now with storage in this browser. You can link GitHub or a local file later."
             >
-              Continue without linking — save in this browser
+              Continue Without Linking
             </button>
           </div>
         )}

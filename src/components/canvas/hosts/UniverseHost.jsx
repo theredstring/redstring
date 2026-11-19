@@ -16,6 +16,8 @@ import { persistentAuth } from '../../../services/persistentAuth.js';
 import { getStorageKey } from '../../../utils/storageUtils.js';
 import { onRenderProbe } from '../../../utils/perf/renderProbe.js';
 import { vlog } from '../../../utils/verboseLog.js';
+import { requestExternalLinkBox } from '../../modals/externalLinkBox.js';
+import { requestUniverseLoad } from '../../universe-manager/universeLoadRequest.js';
 
 // Ask the left panel to show a view (P2.05).
 const openLeftPanelView = (view) => useCanvasUIStore.getState().openLeftPanelView(view);
@@ -540,6 +542,28 @@ function UniverseHost() {
       {/* Storage Setup Modal */}
       <StorageSetupModal
         isVisible={onboardingUp}
+        onOpenExisting={(request) => {
+          // Open an Existing Universe: past onboarding for good, like the X,
+          // and on to the Universes panel, which does the loading.
+          try {
+            localStorage.setItem(getStorageKey('redstring-welcome-seen'), 'true');
+            localStorage.setItem('redstring-welcome-seen', 'true');
+            sessionStorage.removeItem('redstring_onboarding_resume');
+            sessionStorage.removeItem('redstring_onboarding_step');
+            sessionStorage.removeItem('redstring_onboarding_slug');
+            sessionStorage.removeItem('redstring_onboarding_universe_name');
+          } catch { }
+          setShowStorageSetupModal(false);
+          // As the X does: only with no universe at all is the canvas told
+          // there is nothing to show; one that is open stays on the canvas.
+          import('../../../services/universeBackend.js').then(({ default: universeBackend }) => {
+            if ((universeBackend.getAllUniverses?.() || []).length === 0) storeActions.setUniverseLoaded(true, false);
+          }).catch(() => { });
+          storeActions.setLeftPanelExpanded(true);
+          openLeftPanelView('federation');
+          if (request?.source === 'link') requestExternalLinkBox();
+          else if (request) requestUniverseLoad(request);
+        }}
         onClose={() => {
           // Persist dismissal so the onboarding doesn't reappear. Write both
           // scoped + unscoped so the flag survives version/session changes.

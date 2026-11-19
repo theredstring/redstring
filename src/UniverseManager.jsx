@@ -24,7 +24,8 @@ import {
 import universeManagerService, { STORAGE_TYPES } from './services/universeManagerService.js';
 import { isElectron, pickFile, pickSaveLocation, readFileBytes, writeFile } from './utils/fileAccessAdapter.js';
 import { parseRedstringBytes, isBlankBytes } from './formats/universeBytes.js';
-import { isCapacitor, usesPathHandles, usesDeviceFlowAuth } from './utils/capacitorAdapter.js';
+import { isCapacitor, usesPathHandles, usesDeviceFlowAuth, universeFileHandle } from './utils/capacitorAdapter.js';
+import { UNIVERSE_LOAD_EVENT, takeUniverseLoadRequest } from './components/universe-manager/universeLoadRequest.js';
 import { HEADER_HEIGHT } from './constants.js';
 import useGraphStore from './store/graphStore.js';
 import { getStorageKey } from './utils/storageUtils.js';
@@ -1188,8 +1189,13 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
             // Switch to the new universe before loading data
             await universeBackend.switchActiveUniverse(createdSlug);
 
-            // Build a fileHandle for Electron (the file path) or use null for browser
-            const fileHandle = isElectron() && file.path ? file.path : null;
+            // Build a fileHandle for Electron (the file path) or use null for browser.
+            // iOS/Android: the copy lives in the app's own Universes folder, under
+            // the handle createUniverse already linked. Null here unlinked it and
+            // left a bare file name, which read back as "Local file not found".
+            const fileHandle = isElectron() && file.path
+              ? file.path
+              : (isCapacitor() ? universeFileHandle(createdSlug) : null);
             const displayPath = isElectron() && file.path ? file.path : file.name;
 
             // Use the same proven path as "Link Existing File"
@@ -3327,7 +3333,48 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
     setSyncStatus({ type: 'info', message: 'Local file link cancelled' });
   };
 
-  const handleLinkLocalFile = async (slug) => {
+  // Open an Existing Universe (onboarding), where the file can stay linked: a
+  // new universe named for the file, linked to it, so edits save back into it.
+  const handleOpenExistingFile = async (fileHandle) => {
+    const fileName = typeof fileHandle === 'string'
+      ? fileHandle.split(/[/\\]/).pop()
+      : (fileHandle?.name || 'Universe.redstring');
+    const name = buildUniqueUniverseName(fileName.replace(/\.redstring$/i, ''), serviceState.universes);
+    try {
+      setLoading(true);
+      const creationResult = await universeManagerService.createUniverse(name, { enableGit: false, enableLocal: true });
+      const slug = creationResult?.createdUniverse?.slug
+        || (creationResult?.universes || []).find(u => u.name === name)?.slug;
+      if (!slug) throw new Error('Unable to determine universe slug after creation');
+      await universeBackend.switchActiveUniverse(slug);
+      await handleLinkLocalFile(slug, fileHandle);
+    } catch (err) {
+      umError('[UniverseManager] Open existing universe failed:', err);
+      setError(`Failed to open universe: ${err.message}`);
+      setLoading(false);
+    }
+  };
+
+  // Requests from outside the panel (universeLoadRequest.js), taken on mount
+  // when the panel opened for them, and live while it is showing.
+  const loadRequestHandlersRef = useRef(null);
+  loadRequestHandlersRef.current = {
+    file: (request) => handleLoadFromLocal(request.file),
+    handle: (request) => handleOpenExistingFile(request.handle),
+    repo: () => handleLoadFromRepo(),
+  };
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const run = () => {
+      const request = takeUniverseLoadRequest();
+      if (request) loadRequestHandlersRef.current?.[request.source]?.(request);
+    };
+    window.addEventListener(UNIVERSE_LOAD_EVENT, run);
+    run();
+    return () => window.removeEventListener(UNIVERSE_LOAD_EVENT, run);
+  }, []);
+
+  const handleLinkLocalFile = async (slug, pickedHandle = null) => {
     umLog('[UniverseManager] Linking local file for universe:', slug);
 
     let payload = null;
@@ -3335,8 +3382,9 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
     try {
       setLoading(true);
 
-      // Use the file access adapter (works in both browser and Electron)
-      const fileHandle = await pickFile();
+      // Use the file access adapter (works in both browser and Electron), unless
+      // the file was already picked (onboarding's Open an Existing Universe).
+      const fileHandle = pickedHandle || await pickFile();
 
       if (!fileHandle) {
         // Belt-and-suspenders: adapter should have thrown, but don't trust it
