@@ -48,7 +48,8 @@ const ContextMenu = ({ x, y, options = [], onClose, onSelect, grow = 'right', ma
     // already squeezed by the very edge we are trying to move it away from.
     el.style.left = '0px';
     el.style.top = '0px';
-    const { width, height } = el.getBoundingClientRect();
+    // Where it lands at (0, 0) is where this card's left/top measure from.
+    const { width, height, left: originX, top: originY } = el.getBoundingClientRect();
 
     // `grow` is the side the card opens toward from the point: right (the
     // default, a native menu) or left, for a trigger on the screen's right
@@ -68,6 +69,14 @@ const ContextMenu = ({ x, y, options = [], onClose, onSelect, grow = 'right', ma
       const above = y - height;
       top = above >= margin ? above : Math.max(margin, vh - height - margin);
     }
+
+    // Everything above is client space (a button's rect, a touch point). This
+    // card's left/top may not be: inside #root, its transform makes #root the
+    // containing block, and on iOS #root sits one safe-area inset down, so the
+    // card landed that far below its button (appViewport.js). Portalled to
+    // <body> it measures from the viewport. The (0, 0) measurement says which.
+    left -= originX;
+    top -= originY;
 
     // Write it straight back before this layout pass ends — the state update is
     // what keeps it there across the next render.
