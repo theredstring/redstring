@@ -113,7 +113,6 @@ const PanelIconButton = forwardRef(({
   };
 
   // Track whether touch already handled the action to prevent double-fire with onClick.
-  // Cannot use e.preventDefault() in onTouchEnd since React registers it as passive.
   const touchHandledRef = useRef(false);
 
   // A touch that travelled is a scroll passing over the button, not a tap: in
@@ -139,6 +138,13 @@ const PanelIconButton = forwardRef(({
     if (!start || (t && (Math.abs(t.clientX - start.x) > TAP_SLOP_PX || Math.abs(t.clientY - start.y) > TAP_SLOP_PX))) return;
     if (!disabled && onClick) {
       e.stopPropagation();
+      // No click after this tap. The browser sends one ~0-300 ms after
+      // touchend, to whatever is under the finger THEN: when the tap changed
+      // the screen, that is something else. Onboarding's Repository button sits
+      // where the next step's Create Universe Here lands, so the tap went on
+      // to make a repository nobody chose. React registers only touchstart and
+      // touchmove as passive, so touchend can cancel the click.
+      if (e.cancelable) e.preventDefault();
       touchHandledRef.current = true;
       onClick(e);
       setTimeout(() => { touchHandledRef.current = false; }, 400);

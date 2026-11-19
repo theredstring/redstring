@@ -21,6 +21,9 @@ import {
 } from '../services/workspaceFolderService.js';
 import { listUserRepos } from '../services/githubRepoService.js';
 import universeManagerService from '../services/universeManagerService.js';
+import { openUniverseFile } from '../services/openUniverseFile.js';
+import { saveLinkedAsLocalFile, publishLinkedToRepo } from '../services/externalLinkDestinations.js';
+import ExternalLinkLoadModal from './modals/ExternalLinkLoadModal.jsx';
 import {
   fillGitSlot, addLocalFileSlot, resolveLocalFileHandle, openRepoUniverse,
   GIT_ONBOARDING_TASKS, OPEN_REPO_TASKS
@@ -106,7 +109,6 @@ const StorageSetupModal = ({
   onUniverseReady = null, // ({ slug, name, warnings }) => void — a slot was filled; load it into the shell, keep modal open
   onFinishOnboarding = null, // () => void — finalize: mark seen + close (user is already in a universe)
   onBrowserStorageSelected = null,
-  onOpenExisting = null, // (request) => void — Open an Existing Universe: { source: 'file', file } | { source: 'handle', handle } | { source: 'repo' } | { source: 'link' }
   ...canvasModalProps
 }) => {
   const theme = useTheme();
@@ -144,6 +146,9 @@ const StorageSetupModal = ({
   // --- Local file slot ---
   const [localBusy, setLocalBusy] = useState(false);
   const [localError, setLocalError] = useState(null);
+  // --- Open an Existing Universe → File ---
+  const [openBusy, setOpenBusy] = useState(false);
+  const [openError, setOpenError] = useState(null);
 
   // --- GitHub wizard state ---
   const github = useGitHubConnection({ active: isVisible && step === 'git-connect' });
@@ -541,15 +546,46 @@ const StorageSetupModal = ({
     />
   );
 
-  // Open an Existing Universe: a file stays linked where the platform can keep
-  // it (desktop, a browser with file access), and comes in as a copy where it
-  // can't (iOS, Android, other browsers). Picked here, inside the click, so the
-  // picker isn't blocked; the Universes panel does the loading.
+  // A universe opened from a file or a link becomes this box's universe, as
+  // one opened from a repository does: its name, its filled slot, back to the
+  // hub to add another place or Get Connected. Onboarding never leaves this box.
+  const landOpened = ({ slug, name, local = null, git = null }) => {
+    universeSlugRef.current = slug;
+    if (name) setUniverseName(name);
+    setSlotStatus((prev) => ({
+      local: local ? { done: true, label: local } : prev.local,
+      git: git ? { done: true, label: git } : prev.git
+    }));
+    setSourceOfTruth(git ? 'git' : 'local');
+    clearWizardResumeFlags();
+    onUniverseReady?.({ slug, name, warnings: [] });
+    setStep('slots');
+  };
+
+  const runOpenFile = async (source) => {
+    setOpenBusy(true);
+    setOpenError(null);
+    try {
+      const result = await openUniverseFile(source);
+      landOpened({ slug: result.slug, name: result.name, local: result.fileName });
+    } catch (err) {
+      if (err?.slug) universeSlugRef.current = err.slug;
+      setOpenError(err?.message || 'Could not open that file.');
+    } finally {
+      setOpenBusy(false);
+    }
+  };
+
+  // Open an Existing Universe → File: a file stays linked where the platform
+  // can keep it (desktop, a browser with file access), and comes in as a copy
+  // where it can't (iOS, Android, other browsers). Picked here, inside the
+  // tap, so the picker isn't blocked, and opened here too.
   const openExistingFile = async () => {
+    if (openBusy) return;
     if (!isCapacitor() && (isElectron() || hasFileSystemAccess())) {
       try {
         const handle = await pickFile();
-        if (handle) onOpenExisting?.({ source: 'handle', handle });
+        if (handle) await runOpenFile({ handle });
       } catch (err) {
         if (err?.name !== 'AbortError' && !/returned no file/i.test(err?.message || '')) {
           console.warn('[StorageSetupModal] Open existing file failed:', err);
@@ -562,7 +598,7 @@ const StorageSetupModal = ({
     input.accept = '.redstring';
     input.onchange = () => {
       const file = input.files?.[0];
-      if (file) onOpenExisting?.({ source: 'file', file });
+      if (file) runOpenFile({ file });
     };
     input.click();
   };
@@ -801,12 +837,42 @@ const StorageSetupModal = ({
     description: 'From a file, a repository or a link',
     children: hubActions(
       <>
-        <PanelIconButton icon={FileText} size={14} label="File" variant="outline" onClick={openExistingFile} style={hubButtonStyle} />
-        <PanelIconButton icon={Github} size={14} label="Repository" variant="outline" onClick={showGitOption ? handleOpenRepository : () => onOpenExisting?.({ source: 'repo' })} style={hubButtonStyle} />
-        <PanelIconButton icon={Link} size={14} label="Link" variant="outline" onClick={() => onOpenExisting?.({ source: 'link' })} style={hubButtonStyle} />
+        <PanelIconButton icon={FileText} size={14} label={openBusy ? 'Opening…' : 'File'} variant="outline" onClick={openExistingFile} disabled={openBusy} style={hubButtonStyle} />
+        <PanelIconButton icon={Github} size={14} label="Repository" variant="outline" onClick={handleOpenRepository} disabled={openBusy} style={hubButtonStyle} />
+        <PanelIconButton icon={Link} size={14} label="Link" variant="outline" onClick={() => setStep('link')} disabled={openBusy} style={hubButtonStyle} />
+        {openError && (
+          <div style={{ flexBasis: '100%', fontSize: '0.76rem', lineHeight: 1.35, color: statusColors.error, fontFamily: "'EmOne', sans-serif" }}>
+            {openError}
+          </div>
+        )}
       </>
     )
   });
+
+  // Open an Existing Universe → Link: the link box, inside this one.
+  const renderLinkStep = () => (
+    <ExternalLinkLoadModal
+      isOpen
+      embedded
+      compact={isCompactLayout}
+      renderBack={(onBack) => backButton(onBack)}
+      onBack={() => setStep('slots')}
+      onSaveAsLocalFile={async (storeState, suggestedName) => {
+        const result = await saveLinkedAsLocalFile(storeState, suggestedName);
+        landOpened({ slug: result.slug, name: result.name, local: result.fileName });
+      }}
+      onPublishToRepo={async (target) => {
+        const result = await publishLinkedToRepo(target);
+        landOpened({ slug: result.slug, name: result.name, git: `@${target.repoOwner}/${target.repoName}` });
+      }}
+      onOpenReadOnly={async (storeState, suggestedName, sourceUrl) => {
+        // Just looking: the read-only view takes the screen, and this box
+        // waits behind it, back at its start.
+        setStep('slots');
+        await universeBackend.openReadOnlyUniverse(sourceUrl);
+      }}
+    />
+  );
 
   const renderSlotsStep = () => (
     <>
@@ -913,7 +979,7 @@ const StorageSetupModal = ({
       {/* This one universe, and the way in for one that already exists */}
       <div style={{ flexShrink: 0 }}>
         {renderCreateCard()}
-        {!anySlotFilled && onOpenExisting && renderOpenExistingCard()}
+        {!anySlotFilled && renderOpenExistingCard()}
       </div>
 
       {/* Get Connected — always visible, greyed out until a slot is filled */}
@@ -1386,6 +1452,7 @@ const StorageSetupModal = ({
       case 'git-repo': return renderGitRepoStep();
       case 'git-open': return renderGitOpenStep();
       case 'git-finishing': return renderGitFinishingStep();
+      case 'link': return renderLinkStep();
       case 'slots':
       default:
         return renderSlotsStep();

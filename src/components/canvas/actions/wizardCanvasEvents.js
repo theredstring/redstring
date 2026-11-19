@@ -7,6 +7,7 @@
 import { NavigationMode, calculateNavigationParams } from '../../../services/canvasNavigationService.js';
 import { getNodeDimensions } from '../../../utils.js';
 import { MAX_ZOOM } from '../../../constants';
+import { openingZoom } from '../camera/backToCivilization.js';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
 
 /** `rs-navigate-to`: fit the web's content, focus given nodes, go to coordinates or centre the view. */
@@ -103,7 +104,7 @@ export function listenForNavigateTo(ctx) {
 
       case NavigationMode.CENTER: {
         // Navigate to canvas center
-        const defaultZoom = 1;
+        const defaultZoom = openingZoom(viewportSize);
         const centerPanX = viewportSize.width / 2 - (canvasSize.width / 2) * defaultZoom;
         const centerPanY = viewportSize.height / 2 - (canvasSize.height / 2) * defaultZoom;
 

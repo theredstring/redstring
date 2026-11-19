@@ -44,6 +44,19 @@ export function backToCivilization(ctx) {
   transform.jumpTo(view.pan, view.zoom);
 }
 
+// The zoom a web opens at: 1 once the viewport's shorter side reaches
+// OPENING_ZOOM_SPAN pixels (desktops, tablets), less below it, so a phone shows
+// about as much of the web across its narrow side as a small desktop window
+// rather than three Things. Also the ceiling when framing a web as it opens, so
+// a web of one or two Things doesn't open at the deepest zoom.
+const OPENING_ZOOM_SPAN = 650;
+const OPENING_ZOOM_FLOOR = 0.5;
+export function openingZoom(viewportSize) {
+  const shortSide = Math.min(viewportSize?.width || 0, viewportSize?.height || 0);
+  if (!(shortSide > 0)) return 1;
+  return Math.max(OPENING_ZOOM_FLOOR, Math.min(1, shortSide / OPENING_ZOOM_SPAN));
+}
+
 // The furthest out framing zooms when a cluster is too big to fit.
 const FRAMING_MIN_ZOOM = 0.2;
 

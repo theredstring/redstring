@@ -7,17 +7,13 @@ import { useEffect, useLayoutEffect, useRef } from 'react';
 import useGraphStore from '../../../store/graphStore.js';
 import { MAX_ZOOM } from '../../../constants';
 import { computeRelevantNodesVisible } from '../data/backToCivilization.js';
-import { civilizationView } from './backToCivilization.js';
-
-// Zoom ceiling when framing a web as it opens, so a web of one or two Things
-// doesn't open at the deepest zoom.
-const OPEN_FRAMING_MAX_ZOOM = 1;
+import { civilizationView, openingZoom } from './backToCivilization.js';
 
 /** Restore the web's view from this session when the active web changes (skipped mid-drag or mid-zoom).
  * Views are never saved with the universe (see graphViews in graphStore), so a
  * web first seen this session, and a web just added to the header
  * (`newlyOpenedRef`), opens framed on its largest cluster, the way Back to
- * Civilization frames it, zoomed in no further than OPEN_FRAMING_MAX_ZOOM.
+ * Civilization frames it, zoomed in no further than openingZoom.
  * So does a remembered view that would show none of its nodes, before the
  * first paint, so the empty view is never seen. */
 export function restoreViewForGraph(ctx) {
@@ -56,7 +52,7 @@ export function restoreViewForGraph(ctx) {
       // No view this session: frame the largest cluster. Every time, not only
       // on opening: a resize before the first view is recorded must not drop
       // the camera on the empty middle of the canvas.
-      view = civilizationView({ nodes, baseDimsById, viewportSize, canvasSize, connections, maxZoom: OPEN_FRAMING_MAX_ZOOM });
+      view = civilizationView({ nodes, baseDimsById, viewportSize, canvasSize, connections, maxZoom: openingZoom(viewportSize) });
     } else {
       // An empty web: the middle of the canvas.
 
@@ -64,8 +60,7 @@ export function restoreViewForGraph(ctx) {
       const targetCanvasX = canvasSize.width / 2;
       const targetCanvasY = canvasSize.height / 2;
 
-      // Use default zoom level
-      const defaultZoom = 1;
+      const defaultZoom = openingZoom(viewportSize);
 
       // Calculate pan needed to place targetCanvas coords at viewport center
       const initialPanX = viewportSize.width / 2 - targetCanvasX * defaultZoom;
@@ -90,7 +85,7 @@ export function restoreViewForGraph(ctx) {
     if (newlyOpened) newlyOpenedRef.current = null;
     if (justOpened && nodes.length > 0 && storedView) {
       if (newlyOpened) {
-        view = civilizationView({ nodes, baseDimsById, viewportSize, canvasSize, connections, maxZoom: OPEN_FRAMING_MAX_ZOOM });
+        view = civilizationView({ nodes, baseDimsById, viewportSize, canvasSize, connections, maxZoom: openingZoom(viewportSize) });
       } else {
         const anyNodeVisible = computeRelevantNodesVisible({
           enableClustering: false, nodes, panOffset: view.pan, zoomLevel: view.zoom, viewportSize, canvasSize, baseDimsById,

@@ -28,6 +28,10 @@ import { hasCapability } from '../../utils/deviceDetection.js';
 import { persistentAuth } from '../../services/persistentAuth.js';
 import { formatBytes } from '../../utils/formatBytes.js';
 import { isReadOnlyUniverseOpen } from '../../store/readOnlyUniverse.js';
+import { useGitHubConnection } from '../../hooks/useGitHubConnection.js';
+import { isCapacitor } from '../../utils/capacitorAdapter.js';
+import GitHubConnectModal from './GitHubConnectModal.jsx';
+import GitHubConnectStep from '../shared/GitHubConnectStep.jsx';
 
 const kindLabel = (kind) => {
   switch (kind) {
@@ -69,10 +73,20 @@ const ExternalLinkLoadModal = ({
   onSaveAsLocalFile,
   onOpenReadOnly,
   onMergeIntoCurrent,
-  currentUniverseName
+  currentUniverseName,
+  // Inside another box (onboarding's Open an Existing Universe → Link) rather
+  // than a modal of its own: no frame and no X; `renderBack(fn)` draws the
+  // host's back arrow, which steps back through this box's phases and, from
+  // the first, calls `onBack`.
+  embedded = false,
+  renderBack = null,
+  onBack = null,
+  compact = false
 }) => {
   const theme = useTheme();
-  const canAccessLocalFiles = hasCapability('local-files');
+  // iOS/Android keep it in the app's Universes folder, with no picker.
+  const onDevice = isCapacitor();
+  const canAccessLocalFiles = hasCapability('local-files') || onDevice;
 
   // URL input + scan state
   const [url, setUrl] = useState('');
@@ -166,7 +180,14 @@ const ExternalLinkLoadModal = ({
     }
   }, []);
 
-  const startPublishPhase = useCallback(async () => {
+  // Copying into a repository needs GitHub: until it is connected (OAuth and
+  // the App), the publish phase is Connect GitHub, the same box onboarding
+  // shows, and the repositories load once it is.
+  const github = useGitHubConnection({ active: isOpen && publishPhase });
+  const needsGitHub = !github.hasOAuth || !github.hasApp;
+  const reposRequestedRef = useRef(false);
+
+  const startPublishPhase = useCallback(() => {
     if (!preview) return;
     setError(null);
     setPublishPhase(true);
@@ -174,13 +195,22 @@ const ExternalLinkLoadModal = ({
     const slug = slugify(preview.suggestedName);
     setFolder(slug);
     setFile(`${slug}.redstring`);
+    reposRequestedRef.current = false;
+  }, [preview]);
 
-    // Load user's repos
+  useEffect(() => {
+    if (!isOpen || !publishPhase || needsGitHub || reposRequestedRef.current) return;
+    reposRequestedRef.current = true;
+    loadRepos();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, publishPhase, needsGitHub]);
+
+  const loadRepos = useCallback(async () => {
     setReposLoading(true);
     try {
       const token = await persistentAuth.getAccessToken();
       if (!token) {
-        throw new Error('Not connected to GitHub. Use Universe Manager to connect first.');
+        throw new Error('Not connected to GitHub. Connect GitHub first.');
       }
       const res = await fetch('https://api.github.com/user/repos?sort=updated&per_page=100', {
         headers: { Authorization: `token ${token}`, Accept: 'application/vnd.github+json' }
@@ -196,7 +226,7 @@ const ExternalLinkLoadModal = ({
     } finally {
       setReposLoading(false);
     }
-  }, [preview]);
+  }, []);
 
   const runSimpleDestination = useCallback(async (action) => {
     if (!preview || !action) return;
@@ -264,10 +294,62 @@ const ExternalLinkLoadModal = ({
     return kindLabel(classification.kind);
   }, [error, url, classification, scanning]);
 
+  // One step back: the repository list to the preview, the preview to the
+  // link, the link out of this box.
+  const stepBack = () => {
+    if (busy) return;
+    if (publishPhase) { setPublishPhase(false); setSelectedRepo(null); setError(null); return; }
+    if (preview) { setPreview(null); setError(null); return; }
+    onBack?.();
+  };
+
+  // A modal of its own, or (embedded) the host's back arrow, a heading in the
+  // host's style, and the body in a bordered box. Lists inside get a height of
+  // their own there, since the host box sizes to its content.
+  const frame = (title, body) => (embedded ? (
+    <>
+      {renderBack?.(stepBack)}
+      <h2 style={{
+        margin: '0 0 14px 0',
+        textAlign: 'center',
+        color: theme.canvas.textPrimary,
+        fontSize: compact ? '1.2rem' : '1.5rem',
+        fontWeight: 'bold',
+        fontFamily: "'EmOne', sans-serif"
+      }}>
+        {title}
+      </h2>
+      <div style={{
+        border: `2px solid ${theme.canvas.border}`,
+        borderRadius: 8,
+        overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column'
+      }}>
+        {body}
+      </div>
+    </>
+  ) : (
+    <Modal isOpen={isOpen} onClose={onClose} title={title} size="medium">{body}</Modal>
+  ));
+  const listCap = embedded ? { maxHeight: 260 } : null;
+
+  // ------- CONNECT GITHUB (before the repository list) -------
+  if (publishPhase && preview && needsGitHub) {
+    if (!embedded) {
+      return <GitHubConnectModal isVisible={isOpen} connection={github} onBack={stepBack} />;
+    }
+    return (
+      <>
+        {renderBack?.(stepBack)}
+        <GitHubConnectStep connection={github} compact={compact} />
+      </>
+    );
+  }
+
   // ------- PUBLISH PHASE -------
   if (publishPhase && preview) {
-    return (
-      <Modal isOpen={isOpen} onClose={onClose} title="Copy to a New Repo" size="medium">
+    return frame('Copy to a New Repo', (
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
           <div style={{
             padding: '12px 16px',
@@ -275,13 +357,15 @@ const ExternalLinkLoadModal = ({
             backgroundColor: theme.canvas.bg,
             flexShrink: 0
           }}>
-            <DialogButton
-              icon={ArrowLeft}
-              label="Back to preview"
-              disabled={busy}
-              onClick={() => { setPublishPhase(false); setSelectedRepo(null); setError(null); }}
-              style={{ minHeight: 28, padding: '4px 12px', marginBottom: 8 }}
-            />
+            {!embedded && (
+              <DialogButton
+                icon={ArrowLeft}
+                label="Back to preview"
+                disabled={busy}
+                onClick={stepBack}
+                style={{ minHeight: 28, padding: '4px 12px', marginBottom: 8 }}
+              />
+            )}
             <div style={{ fontSize: '0.8rem', color: theme.canvas.textSecondary }}>
               Copy <strong style={{ color: theme.canvas.textPrimary }}>{preview.suggestedName}</strong> into one of your repositories.
             </div>
@@ -326,7 +410,7 @@ const ExternalLinkLoadModal = ({
             </div>
           </div>
 
-          <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '8px 12px' }}>
+          <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '8px 12px', ...listCap }}>
             {reposLoading && (
               <div style={{ textAlign: 'center', padding: '20px', color: theme.canvas.textSecondary, fontSize: '0.8rem' }}>
                 <RefreshCw size={14} style={{ animation: 'spin 1s linear infinite' }} /> Loading…
@@ -458,14 +542,12 @@ const ExternalLinkLoadModal = ({
             />
           </div>
         </div>
-      </Modal>
-    );
+    ));
   }
 
   // ------- PREVIEW PHASE -------
   if (preview) {
-    return (
-      <Modal isOpen={isOpen} onClose={onClose} title="Choose Destination" size="medium">
+    return frame('Choose Destination', (
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
           <div style={{
             padding: '14px 16px',
@@ -473,13 +555,15 @@ const ExternalLinkLoadModal = ({
             backgroundColor: theme.canvas.bg,
             flexShrink: 0
           }}>
-            <DialogButton
-              icon={ArrowLeft}
-              label="Back"
-              disabled={busy}
-              onClick={() => { setPreview(null); setError(null); }}
-              style={{ minHeight: 28, padding: '4px 12px', marginBottom: 8 }}
-            />
+            {!embedded && (
+              <DialogButton
+                icon={ArrowLeft}
+                label="Back"
+                disabled={busy}
+                onClick={stepBack}
+                style={{ minHeight: 28, padding: '4px 12px', marginBottom: 8 }}
+              />
+            )}
             <div style={{
               display: 'flex',
               alignItems: 'center',
@@ -557,8 +641,8 @@ const ExternalLinkLoadModal = ({
             {canAccessLocalFiles && (
               <DialogOption
                 icon={HardDrive}
-                label="Save as local file..."
-                description="Pick a save location. Persists across reload."
+                label={onDevice ? 'Save on this device' : 'Save as local file...'}
+                description={onDevice ? "Kept in the app's Universes folder." : 'Pick a save location. Persists across reload.'}
                 disabled={busy}
                 onClick={() => runSimpleDestination(onSaveAsLocalFile)}
               />
@@ -601,13 +685,11 @@ const ExternalLinkLoadModal = ({
             </div>
           </div>
         </div>
-      </Modal>
-    );
+    ));
   }
 
   // ------- URL INPUT PHASE -------
-  return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Load from External Link" size="medium">
+  return frame(embedded ? 'Open From a Link' : 'Load from External Link', (
       <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
         <div style={{
           padding: '12px',
@@ -684,7 +766,8 @@ const ExternalLinkLoadModal = ({
             flex: 1,
             overflowY: 'auto',
             overflowX: 'hidden',
-            padding: '10px 12px'
+            padding: '10px 12px',
+            ...listCap
           }}>
             {files.length === 0 && !scanning && !error && (
               <div style={{
@@ -747,8 +830,7 @@ const ExternalLinkLoadModal = ({
           </div>
         )}
       </div>
-    </Modal>
-  );
+  ));
 };
 
 export default ExternalLinkLoadModal;

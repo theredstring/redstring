@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import useGraphStore from '../../src/store/graphStore.js';
-import { civilizationView } from '../../src/components/canvas/camera/backToCivilization.js';
+import { civilizationView, openingZoom } from '../../src/components/canvas/camera/backToCivilization.js';
 import { restoreViewForGraph } from '../../src/components/canvas/camera/viewPersistence.js';
 import { exportToRedstring, importFromRedstring } from '../../src/formats/redstringFormat.js';
 import { generateStateHash } from '../../src/services/saveHash.js';
@@ -111,6 +111,20 @@ describe('restoring a web\'s view', () => {
     useGraphStore.setState({ graphViews: new Map([['w', kept]]) });
     const { jumps } = restore();
     expect(jumps[0]).toEqual({ pan: kept.panOffset, zoom: 0.7 });
+  });
+
+  it('opens at zoom 1 on a desktop or tablet, further out on a phone', () => {
+    expect(openingZoom({ width: 1440, height: 900 })).toBe(1);
+    expect(openingZoom({ width: 820, height: 1100 })).toBe(1);
+    expect(openingZoom({ width: 390, height: 664 })).toBeCloseTo(0.6, 5);
+    expect(openingZoom({ width: 844, height: 300 })).toBe(0.5);
+  });
+
+  it('opens an empty web and a one-Thing web on a phone at the phone\'s opening zoom', () => {
+    const phone = { width: 390, height: 664 };
+    expect(restore({ viewportSize: phone, nodes: [] }).jumps[0].zoom).toBeCloseTo(0.6, 5);
+    const one = [{ id: 'a', x: 50000, y: 50000 }];
+    expect(restore({ viewportSize: phone, nodes: one, baseDimsById: dimsById(one) }).jumps[0].zoom).toBeCloseTo(0.6, 5);
   });
 });
 
