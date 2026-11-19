@@ -9,10 +9,7 @@ import {
   IMAGE_MIN_ASPECT
 } from './constants.js'; // Import necessary constants
 import useGraphStore from './store/graphStore.js'; // Import store for textSettings
-import { measureTextBlockHeight, measureTextWidth, buildNodeFontString } from './services/textMeasurement.js';
-
-// Font-load guard: clear dimension cache once the custom font is ready
-let fontLoadListenerAdded = false;
+import { measureTextBlockHeight, measureTextWidth, buildNodeFontString, getTextMetricsVersion } from './services/textMeasurement.js';
 
 // --- Define constants for preview dimensions ---
 const PREVIEW_NODE_WIDTH = 720; // Wider for preview
@@ -26,6 +23,7 @@ const DESCRIPTION_PADDING = 8; // Padding around description text
 // This provides a second layer of caching beyond the caller's cache
 const dimensionCache = new Map();
 const MAX_CACHE_SIZE = 1000; // Prevent unbounded growth
+let dimensionCacheMetricsVersion = 0;
 
 // How far a text-only node may push past the max width to keep its name on one
 // line. The cap exists so nodes don't sprawl; this is the graceful zone around it.
@@ -151,6 +149,13 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
   // semanticMetadata — so a key without it would serve stale square dims forever.
   const cacheKey = `${nodeName}-${thumbnailSrc || 'noimg'}-${rawAspectRatio ?? 'noar'}-${imageLoading ? 'loading' : 'idle'}-${imageMissing ? 'missing' : 'ok'}-${isPreviewing}-${descriptionContent || 'nodesc'}-${textSettings.fontSize}-${textSettings.lineSpacing}-${nodeScale}-${lineHeightBase}`;
 
+  // A font arrived and the text measurements behind every cached entry are gone.
+  const metricsVersion = getTextMetricsVersion();
+  if (metricsVersion !== dimensionCacheMetricsVersion) {
+    dimensionCache.clear();
+    dimensionCacheMetricsVersion = metricsVersion;
+  }
+
   const cached = dimensionCache.get(cacheKey);
   if (cached) {
     return cached;
@@ -181,14 +186,6 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
   // --- Text Measurement (via Pretext — no DOM reflow) ---
   const fontString = buildNodeFontString(augTs);
   const textWidth = measureTextWidth(nodeName, fontString);
-
-  // Set up font-load listener to clear dimension cache when custom font loads
-  if (!fontLoadListenerAdded && typeof document !== 'undefined' && document.fonts) {
-    fontLoadListenerAdded = true;
-    document.fonts.ready.then(() => {
-      dimensionCache.clear();
-    });
-  }
 
   // --- Determine base dimensions based on state ---
   let baseWidth, baseHeight, textWidthTarget;

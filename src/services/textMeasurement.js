@@ -27,7 +27,71 @@ function getCacheKey(text, fontString) {
   return text + '\0' + fontString;
 }
 
+// --- Font arrival ---
+//
+// Pretext measures on a canvas, and a canvas measures with whatever face is
+// loaded right now. Before EmOne arrives that is the fallback (Helvetica on a
+// Mac), about 5% narrower. Those widths are cached under the same font string
+// EmOne uses later, both here and inside Pretext, so without a reset they
+// outlive the font's arrival: a node sized from them gets a box too narrow for
+// the text the browser actually draws ("Submarine Communications Cable" came
+// out "Communicatio / ns Cable", three lines in a two-line box).
+//
+// `document.fonts.ready` is not the signal: it resolves as soon as nothing is
+// loading, which can be before EmOne has even been requested. So EmOne is
+// loaded by name, and every later face that finishes loading resets too.
+// Anything that caches a measurement keys it on getTextMetricsVersion() or
+// re-renders through useTextMetricsVersion.
+const NODE_FONT_PROBE = "bold 45px 'EmOne'";
+let metricsVersion = 0;
+const metricsListeners = new Set();
+let fontWatchStarted = false;
+
+function resetTextMetrics() {
+  preparedCache.clear();
+  preparedSegmentsCache.clear();
+  clearCache();
+  metricsVersion += 1;
+  for (const listener of metricsListeners) listener();
+}
+
+function watchFontArrival() {
+  if (fontWatchStarted) return;
+  fontWatchStarted = true;
+  const fonts = typeof document !== 'undefined' ? document.fonts : null;
+  if (!fonts?.load) return;
+  let settled = false;
+  try { settled = fonts.check(NODE_FONT_PROBE); } catch (_) { /* treat as not loaded */ }
+  fonts.addEventListener?.('loadingdone', (event) => {
+    if (!event.fontfaces?.some((face) => /EmOne/.test(face.family))) return;
+    settled = true;
+    resetTextMetrics();
+  });
+  // Covers a load the event missed; skipped when the event already reset for it.
+  if (!settled) {
+    fonts.load(NODE_FONT_PROBE).then(() => {
+      if (settled) return;
+      settled = true;
+      resetTextMetrics();
+    }, () => {});
+  }
+}
+
+/** Bumps each time cached text measurements are thrown away (a font arrived). */
+export function getTextMetricsVersion() {
+  watchFontArrival();
+  return metricsVersion;
+}
+
+/** Subscribe to measurement resets. Returns the unsubscribe function. */
+export function subscribeTextMetrics(listener) {
+  watchFontArrival();
+  metricsListeners.add(listener);
+  return () => metricsListeners.delete(listener);
+}
+
 function getPrepared(text, fontString) {
+  watchFontArrival();
   const key = getCacheKey(text, fontString);
   let cached = preparedCache.get(key);
   if (!cached) {
@@ -39,6 +103,7 @@ function getPrepared(text, fontString) {
 }
 
 function getPreparedWithSegments(text, fontString) {
+  watchFontArrival();
   const key = getCacheKey(text, fontString);
   let cached = preparedSegmentsCache.get(key);
   if (!cached) {

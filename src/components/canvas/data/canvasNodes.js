@@ -108,6 +108,12 @@ export function computeBaseDims(ctx) {
   } = ctx;
   const map = new Map();
   const cache = dimensionCacheRef.current;
+  // A font arrived: every cached box was sized from the fallback font's widths.
+  const metricsVersion = getTextMetricsVersion();
+  if (cache.metricsVersion !== metricsVersion) {
+    cache.clear();
+    cache.metricsVersion = metricsVersion;
+  }
   // Include textSettings in cache key so dimensions recalculate when text size changes
   const tsFontSize = textSettings?.fontSize || 1;
   const tsLineSpacing = textSettings?.lineSpacing || 1;

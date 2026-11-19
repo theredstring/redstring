@@ -72,19 +72,41 @@ export const useViewportBounds = (leftExpanded = true, rightExpanded = true, typ
   const mobileLandscapeShell = useMobileLandscapeShell();
   const headerHeight = mobileLandscapeShell ? 0 : HEADER_HEIGHT;
 
-  // TypeList height - only reserve space when it's actually visible
-  const typeListHeight = typeListVisible ? HEADER_HEIGHT : 0;
+  // TypeList height - only reserve space when it's actually visible. The shell
+  // drops the TypeList whatever its mode says (CanvasShell), so it reserves
+  // nothing there, the same as NodeCanvas.
+  const typeListHeight = (typeListVisible && !mobileLandscapeShell) ? HEADER_HEIGHT : 0;
   
   // Resizer handle space (12px offset from PanelResizerHandle)
   const resizerHandleSpace = 12;
 
   useEffect(() => {
-    const onResize = () => {
+    let frameId = null;
+    const measure = () => {
       const { width, height } = getAppViewportSize();
-      setWindowSize({ w: width, h: height });
+      setWindowSize(prev => (prev.w === width && prev.h === height ? prev : { w: width, h: height }));
+    };
+    // iOS fires resize/orientationchange before #root has taken its rotated
+    // size, so a read at the event alone keeps the old orientation's box.
+    // Read again a frame later, and follow #root itself whenever it resizes.
+    const onResize = () => {
+      measure();
+      if (frameId) cancelAnimationFrame(frameId);
+      frameId = requestAnimationFrame(() => { frameId = null; measure(); });
     };
     window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
+    window.addEventListener('orientationchange', onResize);
+    const root = typeof document !== 'undefined' ? document.getElementById('root') : null;
+    const observer = (root && typeof ResizeObserver !== 'undefined')
+      ? new ResizeObserver(measure)
+      : null;
+    observer?.observe(root);
+    return () => {
+      if (frameId) cancelAnimationFrame(frameId);
+      window.removeEventListener('resize', onResize);
+      window.removeEventListener('orientationchange', onResize);
+      observer?.disconnect();
+    };
   }, []);
 
   const bounds = useMemo(() => {

@@ -317,10 +317,10 @@ const RepositoriesSection = ({
                             }}
                           >
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
-                            <div style={{ flex: 1 }}>
-                              <div style={{ fontWeight: 600, fontSize: '0.78rem', color: theme.canvas.textPrimary }}>{displayName}</div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontWeight: 600, fontSize: '0.78rem', color: theme.canvas.textPrimary, overflowWrap: 'anywhere' }}>{displayName}</div>
                               {itemPath && (
-                                <div style={{ fontSize: '0.68rem', color: theme.canvas.textSecondary }}>{itemPath}</div>
+                                <div style={{ fontSize: '0.68rem', color: theme.canvas.textSecondary, overflowWrap: 'anywhere' }}>{itemPath}</div>
                               )}
                               {/* Always rendered, so the row doesn't reflow when
                                   counts arrive — "?" holds the space. */}
