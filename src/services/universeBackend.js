@@ -2640,13 +2640,20 @@ class UniverseBackend {
           if (needsRefresh) {
             umLog('[UniverseBackend] Refreshing GitHub App token...');
             const { oauthFetch } = await import('./bridgeConfig.js');
+            // No answer (no network yet after coming back from the
+            // background, or the server's cooldown after one failure) falls
+            // back to OAuth like a refused mint, rather than throwing: a throw
+            // here left the engine unmade and the indicator on "Syncing...".
             const tokenResp = await oauthFetch('/api/github/app/installation-token', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ installation_id: app.installationId })
+            }).catch((mintError) => {
+              umWarn(`[UniverseBackend] Could not reach the server for a GitHub App token (${mintError?.message || mintError}), falling back to OAuth`);
+              return null;
             });
 
-            if (tokenResp.ok) {
+            if (tokenResp?.ok) {
               const tokenData = await tokenResp.json();
               token = tokenData.token;
               authMethod = 'github-app';
@@ -2659,8 +2666,7 @@ class UniverseBackend {
               const updatedApp = { ...app, accessToken: token, tokenExpiresAt: expiresAt.toISOString() };
               await persistentAuth.storeAppInstallation(updatedApp);
               umLog('[UniverseBackend] GitHub App token refreshed');
-            } else {
-              const errorText = await tokenResp.text();
+            } else if (tokenResp) {
               umWarn(`[UniverseBackend] Failed to get GitHub App token (${tokenResp.status}), falling back to OAuth`);
             }
           } else {

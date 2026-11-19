@@ -734,6 +734,27 @@ export const PERSISTED_STORE_KEYS = [
   'universeCreatedAt'
 ];
 
+/** In PERSISTED_STORE_KEYS but never written to the file: the person's view. */
+export const UNWRITTEN_STORE_KEYS = [
+  'activeGraphId',
+  'activeDefinitionNodeId',
+  'expandedGraphIds',
+  'rightPanelTabs',
+  'showConnectionNames'
+];
+
+/**
+ * What the file is made from. The store's values are immutable (immer), so a
+ * change that leaves every one of these the same object cannot change the file
+ * (the save worker's copy sees changes the same way, saveMirror.js), and the
+ * store doesn't hand it on to be saved: opening a panel or switching a tab
+ * never shows "Saving".
+ */
+export const WRITTEN_STORE_KEYS = [
+  ...PERSISTED_STORE_KEYS.filter((key) => !UNWRITTEN_STORE_KEYS.includes(key)),
+  '_preserved'
+];
+
 const sizeOf = (value) => {
   if (value instanceof Map || value instanceof Set) return value.size;
   if (Array.isArray(value)) return value.length;

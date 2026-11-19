@@ -731,7 +731,8 @@ export default function ControlPanelsHost({ ctx }) {
               // Combined into its Thing, an equation folds as a Thing-group does; a plain group has no Thing to fold into.
               ...(currentFormat === 'formula' ? { onCombineNodeGroup: isThingGroup ? handleFormulaCondense : undefined } : {}),
               // An equation is a Thing-group already.
-              ...(groupPanelTarget?.linkedNodePrototypeId ? { onConvertToNodeGroup: undefined } : {}),
+              // and has no Ungroup: closing it is Combine Into Thing.
+              ...(groupPanelTarget?.linkedNodePrototypeId ? { onConvertToNodeGroup: undefined, onUngroup: undefined } : {}),
               customContent: currentFormat === 'formula'
                 ? <FormatPanelPreview groupId={groupPanelTarget.id} />
                 : undefined,

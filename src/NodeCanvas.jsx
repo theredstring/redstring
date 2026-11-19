@@ -5,7 +5,8 @@ import { useCanvasTouch } from './hooks/useCanvasTouch';
 import { useCanvasWorker } from './useCanvasWorker.js';
 import { setActionHover } from './utils/canvas/actionHover.js';
 import { getNodeDimensions } from './utils.js';
-import { measureTextWidth as pretextMeasureTextWidth } from './services/textMeasurement.js';
+import { measureTextWidth as pretextMeasureTextWidth, getTextMetricsVersion, subscribeTextMetrics } from './services/textMeasurement.js';
+import useTextMetricsVersion from './hooks/useTextMetricsVersion.js';
 import { onSpritesReady, hydrateLabelSprites, spriteScaleForZoom } from './services/labelSpriteCache.js';
 import { DEFAULT_CONNECTION_LABEL_RING_WIDTH, DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_MOVE_FADE, DEFAULT_CONNECTION_LABEL_TRUNCATE, DEFAULT_CONNECTION_LABEL_SPRITES } from './utils/colorUtils.js';
 import { useDrop } from 'react-dnd';
@@ -512,9 +513,10 @@ function NodeCanvas() {
   const dimensionCacheRef = useRef(new Map());
 
   // Base dimensions for nodes (non-preview) for fast edge math and visibility checks
+  const labelFontVersion = useTextMetricsVersion(); // bumps when the label font arrives
   const baseDimsById = useMemo(() => computeBaseDims({
     dimensionCacheRef, nodes, textSettings,
-  }), [nodes, textSettings?.fontSize, textSettings?.lineSpacing, textSettings?.nodeScale]);
+  }), [nodes, textSettings?.fontSize, textSettings?.lineSpacing, textSettings?.nodeScale, labelFontVersion]);
   // Defer viewport-dependent culling until pan/zoom state is initialized below
   const [visibleNodeIds, setVisibleNodeIds] = useTrackedState(() => new Set());
   const [visibleEdges, setVisibleEdges] = useTrackedState(() => []);
@@ -1614,12 +1616,10 @@ function NodeCanvas() {
   // re-solve once the real font arrives. Nothing throws; the labels just stay
   // subtly wrong forever. So the counter travels in edgeRenderCtx, and any
   // per-edge memo (P3.06) must re-render on it.
-  const [labelFontVersion, bumpLabelFontVersion] = useState(0);
+  // labelFontVersion is read up by baseDimsById (node boxes use the same measurements). It bumps when
+  // EmOne arrives, not on document.fonts.ready, which can resolve before EmOne was even requested.
   useEffect(() => {
-    if (typeof document === 'undefined' || !document.fonts?.ready) return;
-    let cancelled = false;
-    document.fonts.ready.then(() => {
-      if (cancelled) return;
+    const resetLabels = () => {
       // The placements were solved against the estimated widths; they have to go
       // too, or the labels re-render at correct sizes into stale positions.
       placedLabelsRef.current.clear();
@@ -1637,9 +1637,9 @@ function NodeCanvas() {
       // If the label font itself ever changes, that is a rendering change and
       // belongs to SCHEMA in labelSpriteStore.js, which invalidates every
       // persisted sprite at once.
-      bumpLabelFontVersion((v) => v + 1);
-    });
-    return () => { cancelled = true; };
+    };
+    if (getTextMetricsVersion() !== 0) resetLabels(); // the font beat this subscription
+    return subscribeTextMetrics(resetLabels);
   }, []);
 
   // Every label's position depends on where the OTHER labels landed —

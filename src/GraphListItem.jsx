@@ -136,7 +136,6 @@ const GraphListItem = forwardRef(({
       }}
       style={itemStyle}
       onClick={handleClick}
-      onDoubleClick={handleDoubleClick}
       {...doubleTap}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}

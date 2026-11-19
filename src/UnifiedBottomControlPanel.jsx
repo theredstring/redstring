@@ -572,7 +572,7 @@ const UnifiedBottomControlPanel = ({
       {formatSwap.icon(iconSize)}
     </div>
   ) : null;
-  const groupUngroupButton = (
+  const groupUngroupButton = onUngroup ? (
     <div
       className="piemenu-button"
       onClick={onUngroup}
@@ -582,7 +582,7 @@ const UnifiedBottomControlPanel = ({
     >
       <Ungroup size={iconSize} />
     </div>
-  );
+  ) : null;
 
   // Upper bound for any renderer containerWidth — keeps us from asking for more
   // space than the segment actually offers. On mobile the panel reserves 8px

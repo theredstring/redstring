@@ -4,6 +4,7 @@
  * the same dependencies; the refs it passes keep P1.08's stable identities.
  */
 import { getNodeDimensions } from '../../../utils.js';
+import { getTextMetricsVersion } from '../../../services/textMeasurement.js';
 
 export function computeCanvasNodes(ctx) {
   const {

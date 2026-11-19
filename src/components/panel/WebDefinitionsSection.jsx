@@ -185,7 +185,6 @@ export const DefinitionDescription = ({
     <div style={{ padding: '14px 8px 6px' }}>
       <div
         ref={textRef}
-        onDoubleClick={startEditing}
         {...descriptionDoubleTap}
         title="Double-click to edit"
         style={{

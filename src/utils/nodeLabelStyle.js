@@ -81,8 +81,13 @@ export function getNodeLabelStyle({
       width: '100%',
       minWidth: 0,
       maxWidth: wrapMaxWidth ? `${wrapMaxWidth}px` : '100%',
+      // A word wider than the widest box breaks anywhere, the one way the sizing
+      // (Pretext) breaks it too. No `hyphens: auto`: the browser hyphenates at
+      // syllables, Pretext can't, and the two then disagree on the line count, so
+      // the box is sized for fewer lines than are drawn and the last one clips.
       overflowWrap: 'break-word',
       wordBreak: 'break-word',
+      hyphens: 'manual',
     },
   };
 }

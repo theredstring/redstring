@@ -281,4 +281,55 @@ describe('PersistentAuth (secure storage)', () => {
       }
     });
   });
+  describe('a stored GitHub App installation survives a failed token refresh', () => {
+    const install = { installationId: 77, accessToken: 'ghs_old', repositories: [], userData: { login: 'me' } };
+    const seedInstall = () => { persistentAuth.githubAppCache = { ...install }; };
+    const serveMint = (respond) => {
+      const base = mockOAuthFetch.getMockImplementation();
+      mockOAuthFetch.mockImplementation(async (url, options = {}) => {
+        if (url.includes('/api/github/app/installation-token')) return respond();
+        return base(url, options);
+      });
+    };
+
+    it('keeps it when the server cannot be reached (an iPad coming back from the background)', async () => {
+      seedInstall();
+      serveMint(async () => { throw new TypeError('Load failed'); });
+      expect(await persistentAuth.attemptAppAutoConnect()).toBe(false);
+      expect(persistentAuth.hasAppInstallation()).toBe(true);
+      expect(localStorage.setItem).not.toHaveBeenCalledWith('github_app_disconnected_at', expect.anything());
+    });
+
+    it('keeps it through the server cooldown and a server error', async () => {
+      seedInstall();
+      serveMint(async () => { throw new Error('OAuth server unavailable (cooldown)'); });
+      await persistentAuth.attemptAppAutoConnect();
+      serveMint(async () => createFetchResponse({ ok: false, status: 502, text: async () => '{"code":"token_mint_failed"}' }));
+      await persistentAuth.attemptAppAutoConnect();
+      expect(persistentAuth.hasAppInstallation()).toBe(true);
+    });
+
+    it('keeps it when GitHub cannot be reached to check the fresh token', async () => {
+      seedInstall();
+      serveMint(async () => createFetchResponse({ json: async () => ({ token: 'ghs_new' }) }));
+      global.fetch = vi.fn().mockRejectedValue(new TypeError('Load failed'));
+      expect(await persistentAuth.attemptAppAutoConnect()).toBe(false);
+      expect(persistentAuth.hasAppInstallation()).toBe(true);
+    });
+
+    it('forgets it only when the server says the installation no longer exists, and not stickily', async () => {
+      seedInstall();
+      serveMint(async () => createFetchResponse({ ok: false, status: 404, text: async () => '{"error":"Installation not found","code":"installation_not_found"}' }));
+      expect(await persistentAuth.attemptAppAutoConnect()).toBe(false);
+      expect(persistentAuth.hasAppInstallation()).toBe(false);
+      expect(localStorage.setItem).not.toHaveBeenCalledWith('github_app_disconnected_at', expect.anything());
+    });
+
+    it('an expired token (a 401 from GitHub) keeps the installation and drops only the token', async () => {
+      seedInstall();
+      await persistentAuth.expireAppToken();
+      expect(persistentAuth.hasAppInstallation()).toBe(true);
+      expect(persistentAuth.getAppInstallation().accessToken).toBeNull();
+    });
+  });
 });

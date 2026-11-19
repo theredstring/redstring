@@ -13,7 +13,8 @@
 // Two rules per label, in the page's own layout:
 //   - the lines the browser drew are the lines the box was sized for;
 //   - no word is split across lines unless it is wider than the widest text box
-//     a node has (the barebones break-anywhere fallback for genuinely long words).
+//     a node can stretch to (the barebones break-anywhere fallback for genuinely
+//     long words).
 //
 // Each text size also leaves a screenshot in .results/ to look at.
 import { test, expect, storeEval, waitForCanvasReady, nextFrames } from './helpers.js';
@@ -108,7 +109,9 @@ function readLabels(page) {
 
       // Words split across lines, and how wide each would be on its own.
       measurer.style.cssText = `position:absolute;left:-99999px;white-space:nowrap;font:${getComputedStyle(span).font}`;
-      const maxBox = (420 * 1.4 - 2 * 30 * 1.4) * scale; // sEW - 2*sP
+      // The widest text box a word can get: sEW stretched by the 1.1 overshoot, less the
+      // padding, less the 1.01 cushion (utils.js unexpandedTextNodeWidth).
+      const maxBox = ((420 * 1.4 * 1.1 - 2 * 30 * 1.4) / 1.01) * scale;
       const splitWords = [];
       for (const m of full.matchAll(/\S+/g)) {
         if (linesOf(m.index, m.index + m[0].length) > 1) {

@@ -1733,7 +1733,6 @@ const AbstractionCarousel = ({
                             ...labelStyle.typography,
                             whiteSpace: 'normal',
                             display: 'inline-block',
-                            hyphens: 'auto'
                           }}
                           lang="en"
                         >

@@ -147,8 +147,13 @@ export function buildGroupPieButtons({ mode, group, formulaText, currentFormat, 
     { id: 'group-edit', label: shownAsFormula ? 'Edit Formula' : 'Edit Name', icon: Edit3, action: () => h.onEdit() },
     { id: 'group-color', label: 'Change Color', icon: Palette, action: (_id, pos) => h.onColor(pos) },
   );
-  if (!isThingGroup) buttons.push({ id: 'group-convert', label: 'Convert to Thing-Group', icon: SquarePlus, action: () => h.onConvertToNodeGroup() });
-  buttons.push({ id: 'group-ungroup', label: 'Ungroup', icon: Ungroup, action: () => h.onUngroup() });
+  // An equation has no Ungroup: it is its Thing, opened, so closing it is Combine Into Thing.
+  if (!isThingGroup) {
+    buttons.push(
+      { id: 'group-convert', label: 'Convert to Thing-Group', icon: SquarePlus, action: () => h.onConvertToNodeGroup() },
+      { id: 'group-ungroup', label: 'Ungroup', icon: Ungroup, action: () => h.onUngroup() },
+    );
+  }
   if (shownAsFormula) {
     buttons.push(
       { id: 'group-copy', label: 'Copy', icon: ClipboardCopy, action: () => h.onCopy() },

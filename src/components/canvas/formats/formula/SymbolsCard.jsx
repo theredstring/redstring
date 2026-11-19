@@ -46,7 +46,6 @@ function SymbolThing({ proto, maxWidth }) {
     <div
       ref={drag}
       className="symbols-row-thing"
-      onDoubleClick={open}
       {...doubleTap}
       style={{ opacity: isDragging ? 0.5 : 1, cursor: 'grab' }}
     >

@@ -1185,8 +1185,10 @@ This repository was automatically initialized by Redstring UI React. You can now
           try {
             const { persistentAuth } = await import('./persistentAuth.js');
             if (this.authMethod === 'github-app') {
-              if (typeof persistentAuth.clearAppInstallation === 'function') {
-                await persistentAuth.clearAppInstallation();
+              // An expired installation token, not an uninstalled App: keep
+              // the installation (see expireAppToken).
+              if (typeof persistentAuth.expireAppToken === 'function') {
+                await persistentAuth.expireAppToken();
               }
             } else {
               if (typeof persistentAuth.clearTokens === 'function') {

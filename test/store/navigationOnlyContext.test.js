@@ -53,9 +53,9 @@ describe('navigationOnly on the save notification', () => {
     saveCoordinator.isEnabled = wasEnabled;
   });
 
-  it('is true for a web switch on its own', async () => {
-    st().setActiveGraphTab(g1);
-    expect(await nextNotice(spy)).toMatchObject({ type: 'active_graph_change', navigationOnly: true });
+  it('is true for reordering the open webs on its own', async () => {
+    st().moveGraphTab(g1, 1);
+    expect((await nextNotice(spy)).navigationOnly).toBe(true);
   });
 
   it('is true for opening, reordering and expanding webs together', async () => {
@@ -83,7 +83,66 @@ describe('navigationOnly on the save notification', () => {
   it('starts fresh for the next batch', async () => {
     st().addNodePrototype({ id: 'p-owl', name: 'Owl', color: '#800000' });
     await nextNotice(spy);
-    st().setActiveGraphTab(g1);
+    st().moveGraphTab(g1, 1);
     expect((await nextNotice(spy)).navigationOnly).toBe(true);
+  });
+});
+
+describe('changes the file is not made from', () => {
+  let spy;
+  let wasEnabled;
+  let g1;
+  let g2;
+
+  beforeEach(async () => {
+    useGraphStore.setState({
+      graphs: new Map(), nodePrototypes: new Map(), edges: new Map(),
+      openGraphIds: [], activeGraphId: null, expandedGraphIds: new Set(),
+      rightPanelTabs: [{ type: 'home', isActive: true }],
+      leftPanelExpanded: false, rightPanelExpanded: false,
+      isUniverseLoaded: true, isUniverseLoading: false, universeLoadingError: null, hasUniverseFile: true,
+    }, false, 'test_reset');
+    g1 = st().createNewGraph({ name: 'One', typeNodeId: null, color: '#333333' });
+    g2 = st().createNewGraph({ name: 'Two', typeNodeId: null, color: '#333333' });
+    st().addNodePrototype({ id: 'p-fox', name: 'Fox', color: '#800000' });
+    wasEnabled = saveCoordinator.isEnabled;
+    saveCoordinator.isEnabled = true;
+    spy = vi.spyOn(saveCoordinator, 'onStateChange').mockImplementation(() => {});
+    await nextNotice(spy);
+    spy.mockClear();
+  });
+
+  afterEach(() => {
+    spy.mockRestore();
+    saveCoordinator.isEnabled = wasEnabled;
+  });
+
+  it('are not handed on to be saved: panels, tabs, expanded webs, a web switch, connection names', async () => {
+    st().toggleLeftPanel();
+    st().setRightPanelExpanded(true);
+    await nextNotice(spy);
+    st().openRightPanelNodeTab('p-fox');
+    await nextNotice(spy);
+    st().toggleGraphExpanded(g2);
+    await nextNotice(spy);
+    st().setActiveGraphTab(g1);
+    await nextNotice(spy);
+    st().toggleShowConnectionNames();
+    await nextNotice(spy);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('still hands on an edit made in the same tick as a panel change', async () => {
+    st().toggleLeftPanel();
+    st().updateNodePrototype('p-fox', (draft) => { draft.name = 'Red Fox'; });
+    expect(await nextNotice(spy)).toBeDefined();
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it('still hands on a drag that ends without changing the file, so the drag gate opens', async () => {
+    st().setChangeContext({ type: 'node_position', phase: 'end' });
+    st().toggleLeftPanel();
+    await nextNotice(spy);
+    expect(spy).toHaveBeenCalledTimes(1);
   });
 });

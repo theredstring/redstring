@@ -48,11 +48,16 @@ const OVERSHOOT_CUSHION = 1.01;
  * the preview one claimed to wrap "EXACTLY as it did in the unexpanded node" —
  * one function so that claim is true by construction.
  */
-function unexpandedTextNodeWidth(textWidth, sW, sP, sEW) {
+function unexpandedTextNodeWidth(textWidth, sW, sP, sEW, longestWord = 0) {
   const buffered = Math.max(sW, Math.min(textWidth * 1.1 + 2 * sP, sEW));
   if (buffered >= sEW) {
     const needed = textWidth * OVERSHOOT_CUSHION + 2 * sP;
     if (needed > sEW && needed <= sEW * TEXT_NODE_MAX_OVERSHOOT) return needed;
+    // The name wraps anyway, but one of its words is just over the cap: the same
+    // allowance keeps that word whole ("Telecommunication" was drawn
+    // "Telecommunicatio / n"). Only words past the overshoot break mid-word.
+    const wordNeeded = longestWord * OVERSHOOT_CUSHION + 2 * sP;
+    if (wordNeeded > sEW && wordNeeded <= sEW * TEXT_NODE_MAX_OVERSHOOT) return wordNeeded;
   }
   return buffered;
 }
@@ -194,7 +199,7 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
     baseHeight = sPMH;
     // We want the text to wrap EXACTLY as it did in the unexpanded node — so this
     // uses the same helper that branch does, not a second hand-rolled buffer.
-    const unexpandedWidth = unexpandedTextNodeWidth(textWidth, sW, sP, sEW);
+    const unexpandedWidth = unexpandedTextNodeWidth(textWidth, sW, sP, sEW, longestWordWidth(nodeName, fontString));
     textWidthTarget = unexpandedWidth - 2 * sP;
   } else if (hasImage) {
     baseWidth = sEW;
@@ -304,7 +309,7 @@ export const getNodeDimensions = (node, isPreviewing = false, descriptionContent
     const isSingleWord = !nodeName.includes(' ');
 
     // Determine width based on text length, clamped between sW and sEW
-    currentWidth = unexpandedTextNodeWidth(textWidth, sW, sP, sEW);
+    currentWidth = unexpandedTextNodeWidth(textWidth, sW, sP, sEW, longestWordWidth(nodeName, fontString));
 
     // Line height scales with both font size and nodeScale (augTs.fontSize already includes nodeScale)
     const fontSizeScaledLineHeight = 45 * augTs.fontSize * augTs.lineSpacing;

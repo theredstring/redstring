@@ -572,14 +572,17 @@ export class PersistentAuth {
         return false;
       }
       try {
-        const ok = await this.testGitHubAppToken(appInstallation.accessToken);
-        if (!ok) {
-          // Token revoked/expired — clear so the UI prompts for re-auth.
-          // Use non-sticky so user can re-connect without clearing the flag.
+        const verdict = await this.checkGitHubAppToken(appInstallation.accessToken);
+        if (verdict === 'invalid') {
+          // GitHub rejected the token: clear so the UI prompts for re-auth.
+          // Non-sticky so the person can re-connect without clearing the flag.
           await this.clearAppInstallation({ sticky: false });
           return false;
         }
-        return true;
+        // 'unknown' (no network yet, GitHub down) keeps the connection: an
+        // app coming back from the background often has no network for a
+        // moment, and that is not the token being revoked.
+        return verdict === 'valid';
       } catch (err) {
         console.warn('[PersistentAuth] Native-shell App validation failed:', err?.message || err);
         return false;
@@ -782,7 +785,11 @@ export class PersistentAuth {
 
       if (!tokenResponse.ok) {
         const errorText = await tokenResponse.text().catch(() => '');
-        throw new Error(`Failed to refresh GitHub App token (${tokenResponse.status}): ${errorText}`);
+        const error = new Error(`Failed to refresh GitHub App token (${tokenResponse.status}): ${errorText}`);
+        // Only the server's own "installation not found" says it is gone
+        // (uninstalled on GitHub); a bare 404 can be a route the host lacks.
+        error.installationGone = tokenResponse.status === 404 && /installation_not_found/.test(errorText);
+        throw error;
       }
 
       const tokenData = await tokenResponse.json();
@@ -812,9 +819,18 @@ export class PersistentAuth {
       }
 
     } catch (error) {
-      console.error('[PersistentAuth] GitHub App auto-connect failed:', error);
-      // Clear invalid app installation
-      await this.clearAppInstallation();
+      // Forget the installation only when the server says it no longer
+      // exists. Anything else (no network yet after the app comes back, the
+      // server's cooldown after one failure, a 5xx, the OAuth token not ready)
+      // keeps it: the engine mints its own token when it next needs one
+      // (universeBackend). Clearing here, sticky as well, read as "App not
+      // installed" on every reload until the App was installed again.
+      if (error?.installationGone) {
+        console.warn('[PersistentAuth] GitHub App installation no longer exists; forgetting it');
+        await this.clearAppInstallation({ sticky: false });
+      } else {
+        console.warn('[PersistentAuth] GitHub App token refresh failed, keeping the installation:', error?.message || error);
+      }
       return false;
     }
   }
@@ -944,6 +960,15 @@ export class PersistentAuth {
    * Test if a GitHub App token is valid
    */
   async testGitHubAppToken(token) {
+    return (await this.checkGitHubAppToken(token)) === 'valid';
+  }
+
+  /**
+   * Whether GitHub accepts a GitHub App token: 'valid', 'invalid' (GitHub
+   * answered 401), or 'unknown' (no answer, or one that says nothing about
+   * the token: a network failure, rate limit, 5xx).
+   */
+  async checkGitHubAppToken(token) {
     try {
       // /installation/repositories requires an installation access token
       // (`ghs_*`) minted from the App's JWT. Device-flow tokens (Electron,
@@ -958,10 +983,11 @@ export class PersistentAuth {
           'Accept': 'application/vnd.github.v3+json'
         }
       });
-      return response.ok;
+      if (response.ok) return 'valid';
+      return response.status === 401 ? 'invalid' : 'unknown';
     } catch (error) {
-      console.error('[PersistentAuth] GitHub App token test failed:', error);
-      return false;
+      console.warn('[PersistentAuth] GitHub App token test could not reach GitHub:', error?.message || error);
+      return 'unknown';
     }
   }
 
@@ -1645,6 +1671,24 @@ export class PersistentAuth {
   clearAppUserToServerToken() {
     this.appUserToServerToken = null;
     return deleteSecret(LOCAL_STORAGE_KEYS.app.userToServerToken);
+  }
+
+  /**
+   * GitHub refused the App's access token (a 401): it expired. Installation
+   * tokens last an hour, so this is the normal state of an app that sat in
+   * the background. Drop the token and keep the installation, so the next
+   * use mints a fresh one (universeBackend). On native shells, where the
+   * token is the person's own device-flow token, the installation is cleared
+   * as before so the UI asks them to sign in again.
+   */
+  async expireAppToken() {
+    const installation = this.getAppInstallation();
+    if (!installation?.installationId) return;
+    if (usesDeviceFlowAuth()) {
+      await this.clearAppInstallation({ sticky: false });
+      return;
+    }
+    await this.storeAppInstallation({ ...installation, accessToken: null, tokenExpiresAt: null });
   }
 
   /**

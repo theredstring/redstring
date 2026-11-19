@@ -960,9 +960,7 @@ const DraggableTitleComponent = ({
         width: 'fit-content'
       }}
       title={nodeData.name}
-      onDoubleClick={onTitleDoubleClick}
-      onTouchStart={titleDoubleTap.onTouchStart}
-      onTouchEnd={titleDoubleTap.onTouchEnd}
+      {...titleDoubleTap}
     >
       <VectorText text={nodeData.name || 'Untitled'} />
     </div>
@@ -1520,7 +1518,6 @@ const SharedPanelContent = ({
           </div>
         ) : (
           <div
-            onDoubleClick={handleBioDoubleClick}
             {...bioDoubleTap}
             style={{
               marginRight: '15px',

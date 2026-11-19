@@ -7,6 +7,7 @@ import InnerNetwork from './InnerNetwork.jsx'; // Pure SVG — used for the main
 import { previewGroupsFor } from './components/webPreview/webPreviewLayout.js';
 import { getNodeDimensions } from './utils.js'; // Import needed for node dims
 import useExpandMorph from './hooks/useExpandMorph.js';
+import useTextMetricsVersion from './hooks/useTextMetricsVersion.js';
 import useCentredResize from './hooks/useCentredResize.js';
 import { getTextColor, DEFAULT_LIFTED_THING_SHADOW, LIFTED_THING_SHADOW_FAST_LAYERS } from './utils/colorUtils.js';
 import { getNodeLabelStyle } from './utils/nodeLabelStyle.js';
@@ -257,12 +258,15 @@ const Node = ({
   // animation. (If this were only applied while isPreviewing, the instant boolean
   // flip would un-pin maxWidth mid-contraction while the container is still wide,
   // causing the title to reflow during the animation.)
+  const labelFontVersion = useTextMetricsVersion();
   const unexpandedDims = React.useMemo(() => {
     return getNodeDimensions(node, false, null);
     // Depend on the scale/text settings too: getNodeDimensions folds these in, but
     // the `node` reference doesn't change when a slider moves — so without these deps
     // the memo returns stale wrapping widths until the node is dragged (new ref).
-  }, [node, node.sizeMul, textSettings.nodeScale, textSettings.fontSize, textSettings.lineSpacing]);
+    // labelFontVersion: the label font arrived, so the old wrap width was measured
+    // against the fallback font (see textMeasurement.js).
+  }, [node, node.sizeMul, textSettings.nodeScale, textSettings.fontSize, textSettings.lineSpacing, labelFontVersion]);
 
   // --- The box as drawn ---
   // At rest it is the props. With the preview showing, every frame is the expanded
@@ -648,7 +652,6 @@ const Node = ({
                 // Caret must track the node's contrast color, not the canvas text
                 // color — it's invisible on dark node fills otherwise.
                 caretColor: nodeTextColor,
-                hyphens: 'auto', // Parity with the static label's wrapping
                 // Match the label's size-coupled transitions so entering edit mode
                 // mid-resize doesn't desync from the box.
                 transition: `color 0.3s ease, font-size ${SIZE_TRANSITION}, line-height ${SIZE_TRANSITION}, max-width ${SIZE_TRANSITION}`,
@@ -670,7 +673,6 @@ const Node = ({
                 // scales by the same effNodeScale and fits at both endpoints, so syncing
                 // all of them keeps the text fitting at every intermediate frame.
                 transition: `color 0.3s ease, font-size ${SIZE_TRANSITION}, line-height ${SIZE_TRANSITION}, max-width ${SIZE_TRANSITION}`,
-                hyphens: 'auto',
               }}
               lang="en"
             >

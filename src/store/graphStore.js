@@ -32,7 +32,7 @@ const produce = (arg1, arg2) => {
 import { v4 as uuidv4 } from 'uuid';
 import { NODE_WIDTH, NODE_HEIGHT, NODE_DEFAULT_COLOR, isExclusivePanelMode, ZOOM_BAR_POSITIONS, DEFAULT_ZOOM_BAR_POSITION } from '../constants.js';
 import { getFileStatus, restoreLastSession, clearSession, notifyChanges } from './fileStorage.js';
-import { importFromRedstring, PERSISTED_STORE_KEYS } from '../formats/redstringFormat.js';
+import { importFromRedstring, PERSISTED_STORE_KEYS, WRITTEN_STORE_KEYS } from '../formats/redstringFormat.js';
 import { userDataCounts } from '../formats/userDataCounts.js';
 import { mergeUniverses } from '../formats/mergeUniverses.js';
 import { restoreFormulaParts } from '../components/canvas/formats/formula/formulaParts.js';
@@ -1439,6 +1439,18 @@ const NAVIGATION_CHANGE_TYPES = new Set([
 
 
 // Middleware to integrate with SaveCoordinator
+/**
+ * A batch of changes that left everything the file is made from as it was
+ * (opening a panel, switching a tab or a web, expanding a web) and carries no
+ * signal the save coordinator needs (a load, a drag's start or end): nothing to
+ * save, so it isn't handed on, and the indicator never says "Saving".
+ */
+const viewOnlyChange = (context) => context.touchesFile === false
+  && context.type !== 'load'
+  && context.phase == null
+  && !context.isDragging && !context.isPanning && !context.isPinching && !context.isAnimating
+  && !context.forceProcess && !context.finalize;
+
 const saveCoordinatorMiddleware = (config) => {
   let saveCoordinator = null;
   let changeContext = { type: 'unknown' };
@@ -1641,6 +1653,16 @@ const saveCoordinatorMiddleware = (config) => {
       // 3. Initialize cleanup and reset listener immediately
       patchListener = null;
 
+      // Did this change touch anything the file is made from? Identity is
+      // change (immer), as it is for the save worker's copy.
+      let touchesFile = false;
+      try {
+        const nextState = get();
+        touchesFile = WRITTEN_STORE_KEYS.some((key) => prevState[key] !== nextState[key]);
+      } catch (_) {
+        touchesFile = true;
+      }
+
       // --- History Recording ---
       // Recording is ON BY DEFAULT. A change is recorded unless it opts out, and
       // the patch filter is what makes that default safe: anything touching only
@@ -1766,12 +1788,13 @@ const saveCoordinatorMiddleware = (config) => {
         // Camera moves are neutral.
         navigationOnly: batchedContext.navigationOnly !== false
           && (NAVIGATION_CHANGE_TYPES.has(changeContext.type) || changeContext.type === 'viewport'),
+        touchesFile: batchedContext.touchesFile === true || touchesFile,
       };
 
       pendingNotification = setTimeout(async () => {
         try {
           const coordinator = await getSaveCoordinator();
-          if (coordinator && coordinator.isEnabled) {
+          if (coordinator && coordinator.isEnabled && !viewOnlyChange(batchedContext)) {
             const currentState = get();
             coordinator.onStateChange(currentState, batchedContext);
           }

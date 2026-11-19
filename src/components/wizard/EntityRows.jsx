@@ -102,7 +102,6 @@ const DraggableWebCard = ({ row }) => {
     <div
       ref={drag}
       className="entity-drag"
-      onDoubleClick={open}
       {...doubleTap}
       style={{ opacity: isDragging ? 0.5 : 1, cursor: row.thingId ? 'grab' : undefined }}
     >
@@ -120,7 +119,6 @@ const DraggableThingChip = ({ row, maxWidth }) => {
     <div
       ref={drag}
       className="entity-drag"
-      onDoubleClick={open}
       {...doubleTap}
       style={{ opacity: isDragging ? 0.5 : 1, cursor: 'grab' }}
     >
@@ -157,13 +155,12 @@ const DraggableCompactConnection = ({ row }) => {
       direction={toward.has('object') && toward.has('subject') ? 'both'
         : toward.has('object') ? 'out'
           : toward.has('subject') ? 'in' : 'none'}
-      subjectPill={{ ref: dragSubject, style: pillStyle(draggingSubject), onDoubleClick: openSubject, ...tapSubject }}
-      otherPill={{ ref: dragObject, style: pillStyle(draggingObject), onDoubleClick: openObject, ...tapObject }}
+      subjectPill={{ ref: dragSubject, style: pillStyle(draggingSubject), ...tapSubject }}
+      otherPill={{ ref: dragObject, style: pillStyle(draggingObject), ...tapObject }}
       predicatePill={{
         color: row.connectionColor || NODE_DEFAULT_COLOR,
         ref: dragType,
         style: row.typeId ? pillStyle(draggingType) : undefined,
-        onDoubleClick: openType,
         ...tapType
       }}
     />
@@ -214,7 +211,7 @@ const DraggableTriple = ({ row, width }) => {
       onMouseDown={pickSide}
       onTouchStart={(e) => { pickSide(e); doubleTap.onTouchStart(e); }}
       onTouchEnd={doubleTap.onTouchEnd}
-      onDoubleClick={(e) => { pickSide(e); openSide(); }}
+      onDoubleClick={(e) => { pickSide(e); doubleTap.onDoubleClick(e); }}
       style={{ cursor: 'grab', opacity: isDragging ? 0.5 : 1 }}
     >
       <TriplePreview
