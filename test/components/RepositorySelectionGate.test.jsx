@@ -5,8 +5,9 @@ import React from 'react';
 /**
  * Repository Selection is reached straight from onboarding's Open an Existing
  * Universe. It shows repositories only once GitHub is fully connected: OAuth
- * AND the App, as onboarding's own GitHub step requires. OAuth alone keeps
- * the box on the connect cards, asking for the App.
+ * AND the App, as onboarding's own GitHub step requires. Until then it is the
+ * Connect GitHub box onboarding shows, and OAuth alone keeps it there, asking
+ * for the App.
  */
 
 const auth = { status: { hasOAuthTokens: true, hasGitHubApp: false } };
@@ -34,14 +35,15 @@ describe('Repository Selection before GitHub is fully connected', () => {
   it('asks for the App when only OAuth is connected', async () => {
     auth.status = { hasOAuthTokens: true, hasGitHubApp: false };
     open();
-    expect(await screen.findByText('Install the GitHub App to finish connecting.')).toBeTruthy();
+    expect(await screen.findByText('Install the GitHub App for auto-sync. It will be detected automatically.')).toBeTruthy();
+    expect(screen.getByText('Connect GitHub')).toBeTruthy();
     expect(screen.queryByText('things')).toBeNull();
   });
 
   it('asks to connect when nothing is connected', async () => {
     auth.status = { hasOAuthTokens: false, hasGitHubApp: false };
     open();
-    expect(await screen.findByText('Connect GitHub to browse your repositories.')).toBeTruthy();
+    expect(await screen.findByText('Connect GitHub OAuth to continue.')).toBeTruthy();
   });
 
   it('lists repositories once both are connected', async () => {

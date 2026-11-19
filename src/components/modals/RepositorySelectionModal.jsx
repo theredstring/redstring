@@ -21,7 +21,7 @@ import { DialogButton, DialogCheckbox, DialogInput } from '../shared/Dialog.jsx'
 import { useTheme } from '../../hooks/useTheme.js';
 import { persistentAuth } from '../../services/persistentAuth.js';
 import { useGitHubConnection } from '../../hooks/useGitHubConnection.js';
-import GitHubConnectPanel from '../shared/GitHubConnectPanel.jsx';
+import GitHubConnectModal from './GitHubConnectModal.jsx';
 import { listUserRepos, createRepository } from '../../services/githubRepoService.js';
 
 import { universeManagerService } from '../../services/universeManagerService.js';
@@ -58,8 +58,8 @@ const RepositorySelectionModal = ({
   const [sortOrder, setSortOrder] = useState('desc');
   const [authStatus, setAuthStatus] = useState(persistentAuth.getAuthStatus());
   // Until GitHub is fully connected (OAuth AND the App, as onboarding's own
-  // GitHub step requires), the box connects it itself: it is reached straight
-  // from onboarding's Open an Existing Universe. The list then comes up in place.
+  // GitHub step requires), the box is Connect GitHub. The list then comes up
+  // in place.
   const github = useGitHubConnection({ active: isOpen });
   const needsGitHub = !github.hasOAuth || !github.hasApp;
   const [expandedRepos, setExpandedRepos] = useState(new Set());
@@ -305,25 +305,10 @@ const RepositorySelectionModal = ({
     );
   };
 
+  // Not fully connected: the Connect GitHub box, as onboarding shows it. The
+  // list comes up in its place once both are connected.
   if (!authStatus.hasOAuthTokens || needsGitHub) {
-    return (
-      <Modal isOpen={isOpen} onClose={onClose} title="Repository Selection" size="medium">
-        <div style={{
-          flex: 1,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '12px',
-          color: theme.canvas.textSecondary,
-          padding: '16px',
-          overflowY: 'auto'
-        }}>
-          <div style={{ fontSize: '0.9rem', color: theme.canvas.textPrimary }}>
-            {github.hasOAuth ? 'Install the GitHub App to finish connecting.' : 'Connect GitHub to browse your repositories.'}
-          </div>
-          <GitHubConnectPanel connection={github} compact />
-        </div>
-      </Modal>
-    );
+    return <GitHubConnectModal isVisible={isOpen} connection={github} onBack={onClose} />;
   }
 
   return (

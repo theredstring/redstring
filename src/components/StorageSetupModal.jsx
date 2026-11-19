@@ -1,15 +1,15 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import CanvasModal from './CanvasModal';
-import GitHubConnectPanel from './shared/GitHubConnectPanel.jsx';
+import GitHubConnectStep from './shared/GitHubConnectStep.jsx';
 import PanelIconButton from './shared/PanelIconButton.jsx';
 import { isElectron, hasFileSystemAccess, pickFile } from '../utils/fileAccessAdapter.js';
 import { isCapacitor, usesPathHandles } from '../utils/capacitorAdapter.js';
 import {
   FolderOpen, Folder, ArrowRight, ArrowLeft, Github, Lock, Globe, FileText, Link,
-  Loader2, CheckCircle, AlertCircle, Circle, RefreshCw, Save, X, Star, Upload, Key
+  Loader2, CheckCircle, AlertCircle, Circle, RefreshCw, Save, X, Star, Upload, Key, Plus
 } from 'lucide-react';
 import { useTheme } from '../hooks/useTheme.js';
-import { useGitHubConnection, isGitHubDeviceFlowShowing } from '../hooks/useGitHubConnection.js';
+import { useGitHubConnection } from '../hooks/useGitHubConnection.js';
 import { persistentAuth } from '../services/persistentAuth.js';
 import universeBackend from '../services/universeBackend.js';
 import { MODAL_CLOSE_ICON_SIZE } from '../constants.js';
@@ -147,8 +147,7 @@ const StorageSetupModal = ({
 
   // --- GitHub wizard state ---
   const github = useGitHubConnection({ active: isVisible && step === 'git-connect' });
-  const { hasOAuth, hasApp, setAuthNotice } = github;
-  const deviceFlowShowing = isGitHubDeviceFlowShowing(github);
+  const { hasOAuth, setAuthNotice } = github;
   const [repoChoice, setRepoChoice] = useState('create'); // 'create' | 'existing'
   const [newRepoName, setNewRepoName] = useState('Redstring-Universes');
   const [newRepoPrivate, setNewRepoPrivate] = useState(true);
@@ -159,7 +158,6 @@ const StorageSetupModal = ({
   const [selectedRepo, setSelectedRepo] = useState(null);
   const [taskStates, setTaskStates] = useState({});
   const [finishError, setFinishError] = useState(null);
-  const [finishRunning, setFinishRunning] = useState(false);
   // Open from a repository: which repo is expanded, what each scan found, and
   // the pick being opened (kept for Retry).
   const [openRepoKey, setOpenRepoKey] = useState(null);
@@ -414,7 +412,6 @@ const StorageSetupModal = ({
     const finalName = (universeName && universeName.trim()) ? universeName.trim() : 'Universe';
     setStep('git-finishing');
     setFinishError(null);
-    setFinishRunning(true);
     setTaskStates({});
     try {
       const result = await fillGitSlot({
@@ -431,7 +428,6 @@ const StorageSetupModal = ({
       });
       universeSlugRef.current = result.slug;
       clearWizardResumeFlags();
-      setFinishRunning(false);
       setSlotStatus((prev) => ({ ...prev, git: { done: true, label: `@${result.owner}/${result.repo}` } }));
       setSourceOfTruth('git'); // git wins as source of truth when present
       onUniverseReady?.({ slug: result.slug, name: finalName, warnings: result.warnings });
@@ -442,7 +438,6 @@ const StorageSetupModal = ({
     } catch (err) {
       if (err?.slug) universeSlugRef.current = err.slug;
       setFinishError(err.message || 'Setup failed');
-      setFinishRunning(false);
     }
   };
 
@@ -475,7 +470,6 @@ const StorageSetupModal = ({
     setOpenPick(pick);
     setStep('git-finishing');
     setFinishError(null);
-    setFinishRunning(true);
     setTaskStates({});
     try {
       const result = await openRepoUniverse({
@@ -491,7 +485,6 @@ const StorageSetupModal = ({
       universeSlugRef.current = result.slug;
       openSlugRef.current = null;
       clearWizardResumeFlags();
-      setFinishRunning(false);
       setUniverseName(result.name);
       setSlotStatus((prev) => ({ ...prev, git: { done: true, label: `@${pick.user}/${pick.repo}` } }));
       setSourceOfTruth('git');
@@ -503,7 +496,6 @@ const StorageSetupModal = ({
     } catch (err) {
       openSlugRef.current = err?.slug || (retry ? openSlugRef.current : null);
       setFinishError(err.message || 'Could not open the universe');
-      setFinishRunning(false);
     }
   };
 
@@ -549,82 +541,6 @@ const StorageSetupModal = ({
     />
   );
 
-  const cardBadge = (label, tone) => (
-    <span style={{
-      fontSize: '0.68rem',
-      fontWeight: 700,
-      padding: '2px 7px',
-      borderRadius: 10,
-      color: tone,
-      border: `1px solid ${tone}`,
-      fontFamily: "'EmOne', sans-serif",
-      whiteSpace: 'nowrap'
-    }}>
-      {label}
-    </span>
-  );
-
-  // A guided storage-slot card (Repository / Local File) that acts on the one
-  // universe. When filled it shows a status badge instead of the action button.
-  const renderSlotCard = ({ icon, title, description, done, doneBadge, doneDetail, actionLabel, onAction, busy, error, actionSolid }) => (
-    <div
-      style={{
-        backgroundColor: theme.darkMode ? 'rgba(255,255,255,0.05)' : '#DEDADA',
-        border: `2px solid ${done ? statusColors.success : theme.canvas.border}`,
-        borderRadius: '8px',
-        padding: isCompactLayout ? '12px' : '14px',
-        marginBottom: '12px',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '12px',
-        transition: 'all 0.2s ease'
-      }}
-    >
-      <div style={{ flexShrink: 0, color: theme.canvas.textPrimary, display: 'flex', alignItems: 'center' }}>
-        {icon}
-      </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <h3 style={{
-            margin: 0,
-            fontSize: isCompactLayout ? '0.92rem' : '1rem',
-            fontWeight: 'bold',
-            color: theme.canvas.textPrimary,
-            fontFamily: "'EmOne', sans-serif"
-          }}>
-            {title}
-          </h3>
-          {done && cardBadge(doneBadge, statusColors.success)}
-        </div>
-        <p style={{
-          margin: '2px 0 0 0',
-          fontSize: isCompactLayout ? '0.72rem' : '0.78rem',
-          color: theme.canvas.textSecondary,
-          lineHeight: '1.35',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap'
-        }}>
-          {done ? (doneDetail || description) : description}
-        </p>
-        {!done && error && (
-          <div style={{ margin: '4px 0 0 0', fontSize: '0.74rem', color: statusColors.error, fontFamily: "'EmOne', sans-serif" }}>
-            {error}
-          </div>
-        )}
-      </div>
-      {!done && (
-        <PanelIconButton
-          label={busy ? 'Setting up…' : actionLabel}
-          variant={actionSolid ? 'solid' : 'outline'}
-          onClick={onAction}
-          disabled={busy}
-          style={{ flexShrink: 0, whiteSpace: 'nowrap' }}
-        />
-      )}
-    </div>
-  );
-
   // Open an Existing Universe: a file stays linked where the platform can keep
   // it (desktop, a browser with file access), and comes in as a copy where it
   // can't (iOS, Android, other browsers). Picked here, inside the click, so the
@@ -651,7 +567,11 @@ const StorageSetupModal = ({
     input.click();
   };
 
-  const renderOpenExistingCard = () => (
+  // The hub's two cards, Create a New Universe and Open an Existing Universe,
+  // laid out for a phone first: icon and title on one line, what it does under
+  // them in full, and the choices in a row of their own beneath that, sharing
+  // the card's width and wrapping to another row before anything is cut.
+  const hubCard = ({ icon, title, description, children }) => (
     <div
       style={{
         backgroundColor: theme.darkMode ? 'rgba(255,255,255,0.05)' : '#DEDADA',
@@ -659,41 +579,234 @@ const StorageSetupModal = ({
         borderRadius: '8px',
         padding: isCompactLayout ? '12px' : '14px',
         marginBottom: '12px',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '12px',
-        flexWrap: 'wrap'
+        boxSizing: 'border-box',
+        width: '100%',
+        minWidth: 0
       }}
     >
-      <div style={{ flexShrink: 0, color: theme.canvas.textPrimary, display: 'flex', alignItems: 'center' }}>
-        <FolderOpen size={22} />
-      </div>
-      <div style={{ flex: 1, minWidth: 140 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+        <div style={{ flexShrink: 0, color: theme.canvas.textPrimary, display: 'flex', alignItems: 'center' }}>
+          {icon}
+        </div>
         <h3 style={{
           margin: 0,
-          fontSize: isCompactLayout ? '0.92rem' : '1rem',
+          minWidth: 0,
+          fontSize: isCompactLayout ? '0.95rem' : '1rem',
           fontWeight: 'bold',
+          lineHeight: 1.25,
           color: theme.canvas.textPrimary,
           fontFamily: "'EmOne', sans-serif"
         }}>
-          Open an Existing Universe
+          {title}
         </h3>
+      </div>
+      {description && (
         <p style={{
-          margin: '2px 0 0 0',
-          fontSize: isCompactLayout ? '0.72rem' : '0.78rem',
+          margin: '4px 0 0 0',
+          fontSize: isCompactLayout ? '0.76rem' : '0.8rem',
           color: theme.canvas.textSecondary,
-          lineHeight: '1.35'
+          lineHeight: 1.35,
+          fontFamily: "'EmOne', sans-serif"
         }}>
-          From a file, a repository or a link
+          {description}
         </p>
-      </div>
-      <div style={{ display: 'flex', gap: 6, flexShrink: 0, flexWrap: 'wrap' }}>
-        <PanelIconButton icon={FileText} size={14} label="File" variant="outline" onClick={openExistingFile} style={{ whiteSpace: 'nowrap' }} />
-        <PanelIconButton icon={Github} size={14} label="Repository" variant="outline" onClick={showGitOption ? handleOpenRepository : () => onOpenExisting?.({ source: 'repo' })} style={{ whiteSpace: 'nowrap' }} />
-        <PanelIconButton icon={Link} size={14} label="Link" variant="outline" onClick={() => onOpenExisting?.({ source: 'link' })} style={{ whiteSpace: 'nowrap' }} />
-      </div>
+      )}
+      {children}
     </div>
   );
+
+  const hubActions = (children) => (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
+      {children}
+    </div>
+  );
+
+  // A choice in a card's row: grows to share the row, and wraps to the next
+  // one rather than squeezing its label. Trimmed padding so File, Repository
+  // and Link still share one row on a phone held upright.
+  const hubButtonStyle = { flex: '1 1 auto', whiteSpace: 'nowrap', padding: '6px 10px', gap: 6 };
+
+  // A filled slot, in the row where its button was.
+  const doneChip = (label) => (
+    <div style={{
+      flex: '1 1 auto',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 6,
+      padding: '6px 10px',
+      borderRadius: 20,
+      border: `1px solid ${statusColors.success}`,
+      color: statusColors.success,
+      fontSize: '13px',
+      fontWeight: 600,
+      fontFamily: "'EmOne', sans-serif",
+      whiteSpace: 'nowrap'
+    }}>
+      <CheckCircle size={14} />
+      {label}
+    </div>
+  );
+
+  // Where a filled slot went (the file, the repository), in full: a name is
+  // the one thing here worth wrapping mid-word for.
+  const slotDetail = (icon, text) => text && (
+    <div style={{
+      display: 'flex', alignItems: 'flex-start', gap: 6, marginTop: 8,
+      fontSize: '0.76rem', lineHeight: 1.35, color: theme.canvas.textPrimary,
+      fontFamily: "'EmOne', sans-serif", overflowWrap: 'anywhere', minWidth: 0
+    }}>
+      <span style={{ flexShrink: 0, display: 'flex', marginTop: 1 }}>{icon}</span>
+      <span style={{ minWidth: 0 }}>{text}</span>
+    </div>
+  );
+
+  const localSlotLabel = isCapacitor() ? 'On This Device' : 'Local File';
+
+  const renderCreateCard = () => hubCard({
+    icon: <Plus size={22} />,
+    title: 'Create a New Universe',
+    description: !showLocalSlot ? 'In a GitHub repository' : !showGitOption ? 'On this device' : 'On this device, on GitHub, or both',
+    children: (
+      <>
+        {/* Universe name */}
+        <div style={{ marginTop: 12 }}>
+          <label style={{
+            display: 'block',
+            marginBottom: '6px',
+            fontWeight: 'bold',
+            fontSize: '0.76rem',
+            color: theme.canvas.textPrimary,
+            fontFamily: "'EmOne', sans-serif"
+          }}>
+            Universe Name
+          </label>
+          {nameLocked ? (
+            <div style={{
+              padding: '8px 12px',
+              fontSize: '0.95rem',
+              fontWeight: 'bold',
+              borderRadius: '8px',
+              border: `2px solid ${theme.canvas.border}`,
+              backgroundColor: theme.darkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)',
+              color: theme.canvas.textPrimary,
+              fontFamily: "'EmOne', sans-serif",
+              overflowWrap: 'anywhere'
+            }}>
+              {universeName || 'Universe'}
+            </div>
+          ) : (
+            <input
+              type="text"
+              value={universeName}
+              onChange={(e) => setUniverseName(e.target.value)}
+              placeholder="Universe"
+              style={{
+                width: '100%',
+                padding: '8px 12px',
+                fontSize: '0.95rem',
+                borderRadius: '8px',
+                border: `2px solid ${theme.canvas.border}`,
+                backgroundColor: theme.darkMode ? 'rgba(255,255,255,0.05)' : theme.canvas.bg,
+                color: theme.canvas.textPrimary,
+                boxSizing: 'border-box',
+                fontFamily: "'EmOne', sans-serif",
+                outline: 'none'
+              }}
+            />
+          )}
+        </div>
+
+        {hubActions(
+          <>
+            {showLocalSlot && (slotStatus.local.done
+              ? doneChip('Saved')
+              : (
+                <PanelIconButton
+                  icon={Save}
+                  size={14}
+                  label={localBusy ? 'Setting up…' : localSlotLabel}
+                  variant="outline"
+                  onClick={handleAddLocalFile}
+                  disabled={localBusy}
+                  style={hubButtonStyle}
+                />
+              ))}
+            {showGitOption && (slotStatus.git.done
+              ? doneChip('Connected')
+              : (
+                <PanelIconButton
+                  icon={Github}
+                  size={14}
+                  label="Repository"
+                  variant={gitFirst ? 'solid' : 'outline'}
+                  onClick={handleAddRepository}
+                  style={hubButtonStyle}
+                />
+              ))}
+          </>
+        )}
+
+        {slotStatus.local.done && slotDetail(<Save size={13} />, slotStatus.local.label)}
+        {slotStatus.git.done && slotDetail(<Github size={13} />, slotStatus.git.label)}
+        {!slotStatus.local.done && localError && (
+          <div style={{ marginTop: 8, fontSize: '0.76rem', lineHeight: 1.35, color: statusColors.error, fontFamily: "'EmOne', sans-serif" }}>
+            {localError}
+          </div>
+        )}
+
+        {/* Source of truth, once at least one slot is filled */}
+        {anySlotFilled && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+            marginTop: 12, fontSize: '0.78rem',
+            color: theme.canvas.textPrimary, fontFamily: "'EmOne', sans-serif"
+          }}>
+            <span style={{ fontWeight: 600 }}>Source of truth:</span>
+            {bothSlotsFilled ? (
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {[
+                  { key: 'local', label: localSlotLabel },
+                  { key: 'git', label: 'GitHub' }
+                ].map(({ key, label }) => {
+                  const active = sourceOfTruth === key;
+                  return (
+                    <PanelIconButton
+                      key={key}
+                      icon={Star}
+                      label={label}
+                      size={12}
+                      active={active}
+                      filled={active}
+                      variant="outline"
+                      onClick={() => handleToggleSourceOfTruth(key)}
+                    />
+                  );
+                })}
+              </div>
+            ) : (
+              <span style={{ color: theme.canvas.brandText, fontWeight: 700 }}>
+                {sourceOfTruth === 'git' ? 'GitHub' : sourceOfTruth === 'local' ? localSlotLabel : 'Browser'}
+              </span>
+            )}
+          </div>
+        )}
+      </>
+    )
+  });
+
+  const renderOpenExistingCard = () => hubCard({
+    icon: <FolderOpen size={22} />,
+    title: 'Open an Existing Universe',
+    description: 'From a file, a repository or a link',
+    children: hubActions(
+      <>
+        <PanelIconButton icon={FileText} size={14} label="File" variant="outline" onClick={openExistingFile} style={hubButtonStyle} />
+        <PanelIconButton icon={Github} size={14} label="Repository" variant="outline" onClick={showGitOption ? handleOpenRepository : () => onOpenExisting?.({ source: 'repo' })} style={hubButtonStyle} />
+        <PanelIconButton icon={Link} size={14} label="Link" variant="outline" onClick={() => onOpenExisting?.({ source: 'link' })} style={hubButtonStyle} />
+      </>
+    )
+  });
 
   const renderSlotsStep = () => (
     <>
@@ -744,7 +857,7 @@ const StorageSetupModal = ({
                 <span style={{
                   fontSize: '0.65rem',
                   color: workspaceFolder ? theme.canvas.textPrimary : theme.canvas.textSecondary,
-                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  ...(workspaceFolder && { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }),
                   fontFamily: "'EmOne', sans-serif"
                 }}>
                   {workspaceFolder || 'Where local files are kept'}
@@ -797,123 +910,10 @@ const StorageSetupModal = ({
         </div>
       )}
 
-      {/* Universe name */}
-      <div style={{ marginBottom: '14px', flexShrink: 0 }}>
-        <label style={{
-          display: 'block',
-          marginBottom: '6px',
-          fontWeight: 'bold',
-          fontSize: '0.76rem',
-          color: theme.canvas.textPrimary,
-          fontFamily: "'EmOne', sans-serif"
-        }}>
-          Universe Name
-        </label>
-        {nameLocked ? (
-          <div style={{
-            padding: '8px 12px',
-            fontSize: '0.95rem',
-            fontWeight: 'bold',
-            borderRadius: '8px',
-            border: `2px solid ${theme.canvas.border}`,
-            backgroundColor: theme.darkMode ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)',
-            color: theme.canvas.textPrimary,
-            fontFamily: "'EmOne', sans-serif"
-          }}>
-            {universeName || 'Universe'}
-          </div>
-        ) : (
-          <input
-            type="text"
-            value={universeName}
-            onChange={(e) => setUniverseName(e.target.value)}
-            placeholder="Universe"
-            style={{
-              width: '100%',
-              padding: '8px 12px',
-              fontSize: '0.95rem',
-              borderRadius: '8px',
-              border: `2px solid ${theme.canvas.border}`,
-              backgroundColor: theme.darkMode ? 'rgba(255,255,255,0.05)' : '#DEDADA',
-              color: theme.canvas.textPrimary,
-              boxSizing: 'border-box',
-              fontFamily: "'EmOne', sans-serif",
-              outline: 'none'
-            }}
-          />
-        )}
-      </div>
-
-      {/* Storage slots for this one universe */}
+      {/* This one universe, and the way in for one that already exists */}
       <div style={{ flexShrink: 0 }}>
-        {showLocalSlot && renderSlotCard({
-          icon: <Save size={22} />,
-          // iOS has no file picker and no user-visible filesystem, so name the
-          // slot for what it does there rather than for a file the user will
-          // never see.
-          title: isCapacitor() ? 'On This Device' : 'Local File',
-          description: isCapacitor() ? "Kept in the app's Universes folder" : 'Save on this device',
-          done: slotStatus.local.done,
-          doneBadge: 'Saved ✓',
-          doneDetail: slotStatus.local.label,
-          actionLabel: isCapacitor() ? 'Save on This Device' : 'Add Local File',
-          onAction: handleAddLocalFile,
-          busy: localBusy,
-          error: localError,
-          actionSolid: false
-        })}
-
-        {showGitOption && renderSlotCard({
-          icon: <Github size={22} />,
-          title: gitFirst ? 'Sync with GitHub' : 'GitHub Repository',
-          description: 'Sync across devices',
-          done: slotStatus.git.done,
-          doneBadge: 'Connected ✓',
-          doneDetail: slotStatus.git.label,
-          actionLabel: 'Add Repository',
-          onAction: handleAddRepository,
-          actionSolid: gitFirst
-        })}
-
+        {renderCreateCard()}
         {!anySlotFilled && onOpenExisting && renderOpenExistingCard()}
-
-        {/* Source of truth line, once at least one slot is filled */}
-        {anySlotFilled && (
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
-            marginBottom: '4px', marginTop: '4px', fontSize: '0.78rem',
-            color: theme.canvas.textPrimary, fontFamily: "'EmOne', sans-serif"
-          }}>
-            <span style={{ fontWeight: 600 }}>Source of truth:</span>
-            {bothSlotsFilled ? (
-              <div style={{ display: 'flex', gap: 6 }}>
-                {[
-                  { key: 'local', label: isCapacitor() ? 'On This Device' : 'Local File' },
-                  { key: 'git', label: 'GitHub' }
-                ].map(({ key, label }) => {
-                  const active = sourceOfTruth === key;
-                  return (
-                    <PanelIconButton
-                      key={key}
-                      icon={Star}
-                      label={label}
-                      size={12}
-                      active={active}
-                      filled={active}
-                      variant="outline"
-                      onClick={() => handleToggleSourceOfTruth(key)}
-                    />
-                  );
-                })}
-              </div>
-            ) : (
-              <span style={{ color: theme.canvas.brandText, fontWeight: 700 }}>
-                {sourceOfTruth === 'git' ? 'GitHub' : sourceOfTruth === 'local' ? (isCapacitor() ? 'On This Device' : 'Local File') : 'Browser'}
-              </span>
-            )}
-          </div>
-        )}
-
       </div>
 
       {/* Get Connected — always visible, greyed out until a slot is filled */}
@@ -956,61 +956,12 @@ const StorageSetupModal = ({
   const renderGitConnectStep = () => (
     <>
       {backButton(leaveGitFlow)}
-      <div style={{ textAlign: 'center', marginBottom: deviceFlowShowing ? '10px' : '16px', flexShrink: 0 }}>
-        <h2 style={{
-          margin: deviceFlowShowing ? 0 : '0 0 8px 0',
-          color: theme.canvas.textPrimary,
-          fontSize: isCompactLayout ? '1.2rem' : '1.5rem',
-          fontWeight: 'bold',
-          fontFamily: "'EmOne', sans-serif"
-        }}>
-          {deviceFlowShowing ? (github.deviceFlowState.title || 'Connect GitHub') : 'Connect GitHub'}
-        </h2>
-        {!deviceFlowShowing && (
-          <p style={{ color: theme.canvas.textPrimary, opacity: 0.8, margin: 0, fontSize: isCompactLayout ? '0.8rem' : '0.9rem' }}>
-            Redstring uses GitHub OAuth to browse your repositories and the GitHub App to sync your universes.
-          </p>
-        )}
-      </div>
-
-      <GitHubConnectPanel connection={github} compact={isCompactLayout} />
-
-      {!deviceFlowShowing && (
-      <div style={{ marginTop: '16px' }}>
-        {primaryCta({ label: 'Continue', onClick: () => setStep(afterConnectStep), disabled: !(hasOAuth && hasApp) })}
-        {!(hasOAuth && hasApp) && (
-          <div style={{
-            marginTop: '8px',
-            textAlign: 'center',
-            fontSize: '0.78rem',
-            color: theme.canvas.textSecondary,
-            fontFamily: "'EmOne', sans-serif"
-          }}>
-            {!hasOAuth
-              ? 'Connect GitHub OAuth to continue.'
-              : 'Install the GitHub App for auto-sync. It will be detected automatically.'}
-          </div>
-        )}
-        {hasOAuth && !hasApp && (
-          <button
-            onClick={() => setStep(afterConnectStep)}
-            style={{
-              display: 'block',
-              margin: '10px auto 0',
-              background: 'none',
-              border: 'none',
-              color: theme.canvas.textSecondary,
-              textDecoration: 'underline',
-              cursor: 'pointer',
-              fontSize: '0.78rem',
-              fontFamily: "'EmOne', sans-serif"
-            }}
-          >
-            Continue with OAuth only
-          </button>
-        )}
-      </div>
-      )}
+      <GitHubConnectStep
+        connection={github}
+        compact={isCompactLayout}
+        onContinue={() => setStep(afterConnectStep)}
+        allowOAuthOnly
+      />
     </>
   );
 
@@ -1465,23 +1416,6 @@ const StorageSetupModal = ({
         minHeight: 0,
         overflow: 'hidden'
       }}>
-        {/* Close button - always available (except mid-finish). Pinned to the
-            padded frame, outside the scroll area, so it never scrolls away. */}
-        {!finishRunning && (
-          <PanelIconButton
-            icon={X}
-            onClick={onClose}
-            title="Close"
-            size={MODAL_CLOSE_ICON_SIZE}
-            style={{
-              position: 'absolute',
-              top: isCompactLayout ? '12px' : '16px',
-              right: isCompactLayout ? '12px' : '16px',
-              zIndex: 10
-            }}
-          />
-        )}
-
         {/* Scrollable content area. Sized to the step by the measurement above,
             so this only actually scrolls when the step is taller than the
             viewport allows — clipping is no longer possible either way. */}

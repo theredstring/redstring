@@ -662,6 +662,14 @@ function UniverseHost() {
             // Close storage setup modal
             setShowStorageSetupModal(false);
 
+            // With universes already there (the Help menu's Show Welcome
+            // Screen), this is the way out now the box has no X: it closes, and
+            // the universe on the canvas stays as it is.
+            {
+              const { default: universeBackend } = await import('../../../services/universeBackend.js');
+              if ((universeBackend.getAllUniverses?.() || []).length > 0) return;
+            }
+
             // No universe is preloaded anymore, so the skip path must create
             // the browser-backed universe itself — an explicit user choice,
             // not a preload.
