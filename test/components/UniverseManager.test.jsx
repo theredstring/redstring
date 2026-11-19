@@ -86,7 +86,7 @@ describe('UniverseManager', () => {
       await renderLoaded();
 
       expect(screen.getByText('GitHub OAuth')).toBeTruthy();
-      expect(screen.getByText('Not connected')).toBeTruthy();
+      expect(screen.getAllByText('Not Connected').length).toBeGreaterThan(0);
       expect(screen.getByText('Connect OAuth to browse repositories')).toBeTruthy();
       expect(screen.getByRole('button', { name: /^Connect$/ })).toBeTruthy();
       expect(screen.getByRole('button', { name: /Install App/ })).toBeTruthy();
@@ -130,7 +130,7 @@ describe('UniverseManager', () => {
       await waitFor(() => {
         expect(connectOAuth).toHaveBeenCalledTimes(1);
       });
-      expect(screen.getByText('Not connected')).toBeTruthy();
+      expect(screen.getAllByText('Not Connected').length).toBeGreaterThan(0);
     });
   });
 
@@ -144,7 +144,7 @@ describe('UniverseManager', () => {
       await waitFor(() => {
         expect(screen.getByText(/OAuth authentication failed: Invalid credentials/)).toBeTruthy();
       });
-      expect(screen.getByText('Not connected')).toBeTruthy();
+      expect(screen.getAllByText('Not Connected').length).toBeGreaterThan(0);
     });
 
     it('reports a failed state load', async () => {

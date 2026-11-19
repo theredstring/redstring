@@ -57,10 +57,11 @@ const RepositorySelectionModal = ({
   const [sortBy, setSortBy] = useState('updated');
   const [sortOrder, setSortOrder] = useState('desc');
   const [authStatus, setAuthStatus] = useState(persistentAuth.getAuthStatus());
-  // Signed out, the box connects GitHub itself (it is reached straight from
-  // onboarding's Open an Existing Universe); the token-stored listeners below
-  // then bring up the repository list in place.
-  const github = useGitHubConnection({ active: isOpen && !authStatus.hasOAuthTokens });
+  // Until GitHub is fully connected (OAuth AND the App, as onboarding's own
+  // GitHub step requires), the box connects it itself: it is reached straight
+  // from onboarding's Open an Existing Universe. The list then comes up in place.
+  const github = useGitHubConnection({ active: isOpen });
+  const needsGitHub = !github.hasOAuth || !github.hasApp;
   const [expandedRepos, setExpandedRepos] = useState(new Set());
   const [discoveredUniverses, setDiscoveredUniverses] = useState({});
   // Bumped whenever the shared discovery cache changes, so already-scanned
@@ -304,7 +305,7 @@ const RepositorySelectionModal = ({
     );
   };
 
-  if (!authStatus.hasOAuthTokens) {
+  if (!authStatus.hasOAuthTokens || needsGitHub) {
     return (
       <Modal isOpen={isOpen} onClose={onClose} title="Repository Selection" size="medium">
         <div style={{
@@ -317,7 +318,7 @@ const RepositorySelectionModal = ({
           overflowY: 'auto'
         }}>
           <div style={{ fontSize: '0.9rem', color: theme.canvas.textPrimary }}>
-            Connect GitHub to browse your repositories.
+            {github.hasOAuth ? 'Install the GitHub App to finish connecting.' : 'Connect GitHub to browse your repositories.'}
           </div>
           <GitHubConnectPanel connection={github} compact />
         </div>

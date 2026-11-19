@@ -8807,6 +8807,34 @@ class UniverseBackend {
   /**
    * Set the source of truth for a universe (git or local)
    */
+  /**
+   * What the slot a source-of-truth switch would migrate into holds, compared
+   * with the canvas: 'empty' (nothing there yet: safe to fill), 'same' (the
+   * same knowledge: safe), 'different' (another version: the person chooses),
+   * or 'unreadable' (unknown: never written blind).
+   */
+  async _swapDestinationVerdict(universe, sourceType, currentState) {
+    let data;
+    try {
+      if (sourceType === 'git') {
+        if (!this.gitSyncEngines.get(universe.slug)) await this.ensureGitSyncEngine(universe.slug);
+        data = await this.loadFromGit(universe);
+      } else {
+        data = await this.loadFromLocalFile(universe, { allowPermissionPrompt: false });
+      }
+    } catch (error) {
+      if (sourceType === 'local' && error?.code === LOCAL_FILE_ERROR.NOT_FOUND) return 'empty';
+      umWarn(`[UniverseBackend] Could not read the ${sourceType} slot before switching source of truth:`, error);
+      return 'unreadable';
+    }
+    if (!data || isEffectivelyEmpty(data)) return 'empty';
+    try {
+      return (await slotsHaveEqualKnowledge(currentState, data)) ? 'same' : 'different';
+    } catch {
+      return 'different';
+    }
+  }
+
   async setSourceOfTruth(universeSlug, sourceType) {
     await this.initialize();
 
@@ -8870,8 +8898,39 @@ class UniverseBackend {
       const hasData = nodeCount > 0 || graphCount > 0;
 
       if (hasData) {
+        // The migration is for a destination that is new and empty. Pushing the
+        // canvas over one that already holds a DIFFERENT universe destroyed it:
+        // attaching an existing repository to a local universe, then making Git
+        // primary, force-committed the local universe over the repository's
+        // (2026-11-18). A different destination is the person's choice, through
+        // the conflict dialog; one that can't be read is never written blind.
+        const verdict = await this._swapDestinationVerdict(universe, sourceType, currentState);
+        const targetLabel = sourceType === 'git' ? 'repository' : 'local file';
+        if (verdict === 'unreadable') {
+          const message = `Could not read the ${targetLabel} to check what is there. Source of truth not changed.`;
+          this.notifyStatus('error', message);
+          const error = new Error(message);
+          error.code = 'SWAP_DESTINATION_UNREADABLE';
+          throw error;
+        }
+        if (verdict === 'different') {
+          const conflict = await this.detectSlotConflict(universe, { forcePrompt: true }).catch(() => null);
+          if (conflict) {
+            this.pendingConflict = conflict;
+            this.pendingPrimarySelection.add(universeSlug);
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent('redstring:slot-conflict', { detail: conflict }));
+            }
+          }
+          const message = `The ${targetLabel} already holds a different version of ${universe.name || universeSlug}. Choose which one to keep.`;
+          this.notifyStatus('warning', message);
+          const error = new Error(message);
+          error.code = 'SWAP_DESTINATION_DIFFERS';
+          throw error;
+        }
+
         umLog('[UniverseBackend] Pre-swap migration: saving current data to new source before switching', {
-          from: oldSource, to: sourceType, nodeCount, graphCount
+          from: oldSource, to: sourceType, nodeCount, graphCount, destination: verdict
         });
 
         try {

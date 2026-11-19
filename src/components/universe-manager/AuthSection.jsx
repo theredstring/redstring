@@ -92,16 +92,16 @@ const AuthSection = ({
             gap: 8
           }}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div style={{ fontWeight: 600 }}>GitHub OAuth</div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', columnGap: 8, rowGap: 2 }}>
+            <div style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>GitHub OAuth</div>
             {hasOAuth && oauthVerification === 'verifying' ? (
-              <span style={{ fontSize: '0.7rem', color: theme.canvas.textSecondary, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ fontSize: '0.7rem', color: theme.canvas.textSecondary, fontWeight: 700, whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                 <Loader2 size={11} style={{ animation: 'spin 1s linear infinite' }} /> Checking
               </span>
             ) : hasOAuth ? (
-              <span style={{ fontSize: '0.7rem', color: STATUS_COLORS.success, fontWeight: 700 }}>Connected</span>
+              <span style={{ fontSize: '0.7rem', color: STATUS_COLORS.success, fontWeight: 700, whiteSpace: 'nowrap' }}>Connected</span>
             ) : (
-               <span style={{ fontSize: '0.7rem', color: STATUS_COLORS.error, fontWeight: 700 }}>Not connected</span>
+               <span style={{ fontSize: '0.7rem', color: STATUS_COLORS.error, fontWeight: 700, whiteSpace: 'nowrap' }}>Not Connected</span>
             )}
           </div>
           {hasOAuth && oauthLogin ? (
@@ -161,12 +161,12 @@ const AuthSection = ({
             gap: 8
           }}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div style={{ fontWeight: 600 }}>GitHub App</div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', columnGap: 8, rowGap: 2 }}>
+            <div style={{ fontWeight: 600, whiteSpace: 'nowrap' }}>GitHub App</div>
             {hasApp ? (
-              <span style={{ fontSize: '0.7rem', color: STATUS_COLORS.success, fontWeight: 700 }}>Installed</span>
+              <span style={{ fontSize: '0.7rem', color: STATUS_COLORS.success, fontWeight: 700, whiteSpace: 'nowrap' }}>Installed</span>
             ) : (
-               <span style={{ fontSize: '0.7rem', color: STATUS_COLORS.error, fontWeight: 700 }}>Not installed</span>
+               <span style={{ fontSize: '0.7rem', color: STATUS_COLORS.error, fontWeight: 700, whiteSpace: 'nowrap' }}>Not Installed</span>
             )}
           </div>
           {hasApp && appLogin ? (

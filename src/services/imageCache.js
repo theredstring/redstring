@@ -235,6 +235,18 @@ const _epochs = new Map();
  */
 const _pending = new Map();
 
+/**
+ * The URL each failed verdict was reached for (protoId -> thumbUrl).
+ *
+ * The canvas re-checks images every time the active web's instances change,
+ * dropping a node included, and asks again for any image it doesn't hold. For
+ * an image that already failed, the re-ask cleared the failed flag: the node
+ * lost its image slot, shrank and shifted, then snapped back when the fetch
+ * failed again a frame or two later. A failure stands for the URL it was
+ * reached for. A new URL, or retryThumbnailFetch, starts over.
+ */
+const _failedUrls = new Map();
+
 function _bumpEpoch(protoId) {
   const next = (_epochs.get(protoId) || 0) + 1;
   _epochs.set(protoId, next);
@@ -325,6 +337,7 @@ async function _processSingleImage(protoId, thumbUrl, imageAspectRatio, nodeName
   // Out of attempts. Record it so the node can render a missing-image state
   // instead of silently pretending it never had one.
   if (_epochs.get(protoId) === epoch) {
+    _failedUrls.set(protoId, thumbUrl);
     useImageCache.getState().setFailed(protoId);
   }
   return false;
@@ -373,6 +386,10 @@ export function queueThumbnailFetch(protoId, thumbUrl, imageAspectRatio = 1, nod
   // The same image already on its way: join that fetch rather than superseding it.
   const pending = _pending.get(protoId);
   if (pending && pending.thumbUrl === thumbUrl) return pending.promise;
+  // Already failed for this very URL: asking again changes nothing.
+  if (useImageCache.getState().failed[protoId] && _failedUrls.get(protoId) === thumbUrl) {
+    return Promise.resolve(false);
+  }
   // A queued fetch supersedes a previous verdict — otherwise a node that failed
   // once keeps rendering its missing-image state through an explicit retry.
   useImageCache.getState().clearFailed(protoId);

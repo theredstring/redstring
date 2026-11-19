@@ -231,3 +231,58 @@ describe('queueThumbnailFetch — a repeat request joins the fetch in flight', (
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 });
+
+// The canvas re-checks images whenever the active web's instances change, and
+// dropping a node is such a change. For a Thing whose image had already failed,
+// that re-check queued the same URL again, which cleared the failed flag: the
+// node lost its image slot (shrank and shifted) until the fetch failed again a
+// frame or two later and it snapped back. A verdict on a URL stands until the
+// URL changes or someone asks for a retry.
+describe('queueThumbnailFetch — a failed image stays failed', () => {
+  let realFetch;
+  const url = 'https://upload.wikimedia.org/thumb/a/ab/Gone.jpg/320px-Gone.jpg';
+
+  beforeEach(() => {
+    reset();
+    realFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async () => ({ ok: false, status: 404 }));
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+    vi.restoreAllMocks();
+  });
+
+  it('does not clear the flag or fetch again for the same URL', async () => {
+    const { queueThumbnailFetch } = await import('../../src/services/imageCache.js');
+    await queueThumbnailFetch('p-gone', url, 1, 'Gone');
+    expect(useImageCache.getState().failed['p-gone']).toBe(true);
+    const calls = globalThis.fetch.mock.calls.length;
+
+    const seen = [];
+    const unsubscribe = useImageCache.subscribe((s) => seen.push(Boolean(s.failed['p-gone'])));
+    await expect(queueThumbnailFetch('p-gone', url, 1, 'Gone')).resolves.toBe(false);
+    unsubscribe();
+
+    expect(seen).not.toContain(false);
+    expect(useImageCache.getState().failed['p-gone']).toBe(true);
+    expect(globalThis.fetch.mock.calls.length).toBe(calls);
+  });
+
+  it('tries again when the URL changes', async () => {
+    const { queueThumbnailFetch } = await import('../../src/services/imageCache.js');
+    await queueThumbnailFetch('p-swap', url, 1, 'Swap');
+    const calls = globalThis.fetch.mock.calls.length;
+    await queueThumbnailFetch('p-swap', url.replace('Gone', 'Other'), 1, 'Swap');
+    expect(globalThis.fetch.mock.calls.length).toBeGreaterThan(calls);
+  });
+
+  it('tries again on an explicit retry', async () => {
+    const { queueThumbnailFetch, retryThumbnailFetch } = await import('../../src/services/imageCache.js');
+    await queueThumbnailFetch('p-retry', url, 1, 'Retry');
+    const calls = globalThis.fetch.mock.calls.length;
+    retryThumbnailFetch('p-retry', url, 1, 'Retry');
+    await vi.waitFor(() => expect(globalThis.fetch.mock.calls.length).toBeGreaterThan(calls));
+  });
+});

@@ -4,7 +4,7 @@ import React from 'react';
 
 vi.mock('../../src/services/persistentAuth.js', () => ({
   persistentAuth: {
-    getAuthStatus: () => ({ hasOAuthTokens: true }),
+    getAuthStatus: () => ({ hasOAuthTokens: true, hasGitHubApp: true }),
     on: vi.fn(),
     off: vi.fn(),
   },
