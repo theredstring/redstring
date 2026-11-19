@@ -20,8 +20,10 @@ import {
   checkWorkspacePermission, requestWorkspacePermission
 } from '../services/workspaceFolderService.js';
 import { listUserRepos } from '../services/githubRepoService.js';
+import universeManagerService from '../services/universeManagerService.js';
 import {
-  fillGitSlot, addLocalFileSlot, resolveLocalFileHandle, GIT_ONBOARDING_TASKS
+  fillGitSlot, addLocalFileSlot, resolveLocalFileHandle, openRepoUniverse,
+  GIT_ONBOARDING_TASKS, OPEN_REPO_TASKS
 } from '../services/gitOnboardingService.js';
 
 /**
@@ -44,6 +46,13 @@ import {
  *   git-repo      — create "Redstring-Universes" (preferred) or link existing
  *   git-finishing — repo → universe → attach → push → promote git checklist
  *
+ * Open an Existing Universe → Repository runs the same connect step with the
+ * 'open' intent, then:
+ *   git-open      — pick a repository, then a universe found in it
+ *   git-finishing — universe → attach → load (nothing is pushed), and back to
+ *                   the hub with the git slot filled, so a local file can join
+ *                   it and Get Connected finishes, as after a fresh setup.
+ *
  * The web OAuth/App-install redirects unload the page; sessionStorage resume
  * flags (redstring_onboarding_resume/_step/_universe_name) reopen the wizard at
  * git-connect, with the universe name preserved, on return.
@@ -65,6 +74,15 @@ const readWizardResumeStep = () => {
   return 'slots';
 };
 
+// 'create' fills the git slot with a new universe; 'open' brings in one that
+// already lives in a repository. Survives the web redirects with the step.
+const readResumeIntent = () => {
+  try {
+    if (sessionStorage.getItem('redstring_onboarding_intent') === 'open') return 'open';
+  } catch { /* ignore */ }
+  return 'create';
+};
+
 const readResumeUniverseName = () => {
   try {
     const stored = sessionStorage.getItem('redstring_onboarding_universe_name');
@@ -78,6 +96,7 @@ const clearWizardResumeFlags = () => {
     sessionStorage.removeItem('redstring_onboarding_resume');
     sessionStorage.removeItem('redstring_onboarding_step');
     sessionStorage.removeItem('redstring_onboarding_universe_name');
+    sessionStorage.removeItem('redstring_onboarding_intent');
   } catch { /* ignore */ }
 };
 
@@ -99,6 +118,8 @@ const StorageSetupModal = ({
 
   // Step: 'slots' (hub) | 'git-connect' | 'git-repo' | 'git-finishing'
   const [step, setStep] = useState(readWizardResumeStep);
+  const [gitIntent, setGitIntent] = useState(readResumeIntent);
+  const afterConnectStep = gitIntent === 'open' ? 'git-open' : 'git-repo';
   const [universeName, setUniverseName] = useState(readResumeUniverseName);
 
   // The one universe being set up. Its slug is assigned on the first slot fill
@@ -139,6 +160,14 @@ const StorageSetupModal = ({
   const [taskStates, setTaskStates] = useState({});
   const [finishError, setFinishError] = useState(null);
   const [finishRunning, setFinishRunning] = useState(false);
+  // Open from a repository: which repo is expanded, what each scan found, and
+  // the pick being opened (kept for Retry).
+  const [openRepoKey, setOpenRepoKey] = useState(null);
+  const [repoUniverses, setRepoUniverses] = useState({});
+  const [openPick, setOpenPick] = useState(null);
+  // The Git-only shell a failed open left behind, for its Retry. Never the
+  // create flow's browser-backed shell: loading that would load it empty.
+  const openSlugRef = useRef(null);
 
   // Only use compact layout on truly small screens (mobile)
   const isCompactLayout = viewportSize.width <= 500;
@@ -219,6 +248,12 @@ const StorageSetupModal = ({
     return () => ro.disconnect();
   }, [isVisible, step]);
 
+  // The open step starts from the repository list.
+  useEffect(() => {
+    if (isVisible && step === 'git-open' && repoList === null && !repoListLoading) loadRepoList();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isVisible, step]);
+
   // Restore the workspace folder handle/permission state on mount.
   useEffect(() => {
     if (!isVisible || !showWorkspaceRow) return;
@@ -295,15 +330,18 @@ const StorageSetupModal = ({
 
   // --- Slot fill handlers ---
 
-  const handleAddRepository = () => {
+  const enterGitFlow = (intent) => {
     // Arm the resume flags BEFORE any redirect can happen — the web OAuth and
     // App-install flows unload the page, and these flags (plus the persisted
-    // universe name) bring the user back into the wizard at git-connect.
+    // universe name and intent) bring the user back into the wizard at
+    // git-connect.
     try {
       sessionStorage.setItem('redstring_onboarding_resume', 'true');
       sessionStorage.setItem('redstring_onboarding_step', 'git-connect');
       sessionStorage.setItem('redstring_onboarding_universe_name', (universeName || 'Universe').trim() || 'Universe');
+      sessionStorage.setItem('redstring_onboarding_intent', intent);
     } catch { /* ignore */ }
+    setGitIntent(intent);
     setAuthNotice(null);
     // Already fully connected from a prior slot fill this session? Skip to repo.
     // Read fresh: the hook only tracks auth while the connect step is showing.
@@ -311,8 +349,10 @@ const StorageSetupModal = ({
     // which verifies it, rather than straight to a repo list that would 401.
     const now = persistentAuth.getAuthStatus();
     const readyToSkip = now?.hasOAuthTokens && now?.hasGitHubApp && now?.oauthVerification === 'valid';
-    setStep(readyToSkip ? 'git-repo' : 'git-connect');
+    setStep(readyToSkip ? (intent === 'open' ? 'git-open' : 'git-repo') : 'git-connect');
   };
+  const handleAddRepository = () => enterGitFlow('create');
+  const handleOpenRepository = () => enterGitFlow('open');
 
   const handleAddLocalFile = async () => {
     setLocalBusy(true);
@@ -406,8 +446,70 @@ const StorageSetupModal = ({
     }
   };
 
+  const repoKeyOf = (repo) => {
+    const user = repo?.owner?.login || repo?.owner?.name || repo?.owner || repo?.full_name?.split('/')[0];
+    const name = repo?.name || repo?.full_name?.split('/').pop();
+    return user && name ? { user, repo: name, key: `${user}/${name}` } : null;
+  };
+
+  const toggleOpenRepo = async (repo) => {
+    const info = repoKeyOf(repo);
+    if (!info) return;
+    if (openRepoKey === info.key) { setOpenRepoKey(null); return; }
+    setOpenRepoKey(info.key);
+    if (repoUniverses[info.key]?.list) return;
+    setRepoUniverses((prev) => ({ ...prev, [info.key]: { loading: true } }));
+    try {
+      const list = await universeManagerService.discoverUniverses({
+        user: info.user,
+        repo: info.repo,
+        authMethod: hasOAuth ? 'oauth' : 'github-app'
+      });
+      setRepoUniverses((prev) => ({ ...prev, [info.key]: { list: Array.isArray(list) ? list : [] } }));
+    } catch (err) {
+      setRepoUniverses((prev) => ({ ...prev, [info.key]: { error: err.message || 'Could not read this repository.' } }));
+    }
+  };
+
+  const startOpening = async (pick, { retry = false } = {}) => {
+    setOpenPick(pick);
+    setStep('git-finishing');
+    setFinishError(null);
+    setFinishRunning(true);
+    setTaskStates({});
+    try {
+      const result = await openRepoUniverse({
+        discovered: pick.universe,
+        repo: { user: pick.user, repo: pick.repo },
+        authMethod: hasOAuth ? 'oauth' : 'github-app',
+        // Only a retry of the same pick takes the shell a failed attempt left.
+        reuseSlug: retry ? openSlugRef.current : null,
+        onProgress: (taskId, status, detail) => {
+          setTaskStates((prev) => ({ ...prev, [taskId]: { status, detail } }));
+        }
+      });
+      universeSlugRef.current = result.slug;
+      openSlugRef.current = null;
+      clearWizardResumeFlags();
+      setFinishRunning(false);
+      setUniverseName(result.name);
+      setSlotStatus((prev) => ({ ...prev, git: { done: true, label: `@${pick.user}/${pick.repo}` } }));
+      setSourceOfTruth('git');
+      onUniverseReady?.({ slug: result.slug, name: result.name, warnings: [] });
+      setOpenRepoKey(null);
+      setOpenPick(null);
+      setGitIntent('create');
+      setStep('slots');
+    } catch (err) {
+      openSlugRef.current = err?.slug || (retry ? openSlugRef.current : null);
+      setFinishError(err.message || 'Could not open the universe');
+      setFinishRunning(false);
+    }
+  };
+
   const leaveGitFlow = () => {
     clearWizardResumeFlags();
+    setGitIntent('create');
     setStep('slots');
   };
 
@@ -587,7 +689,7 @@ const StorageSetupModal = ({
       </div>
       <div style={{ display: 'flex', gap: 6, flexShrink: 0, flexWrap: 'wrap' }}>
         <PanelIconButton icon={FileText} size={14} label="File" variant="outline" onClick={openExistingFile} style={{ whiteSpace: 'nowrap' }} />
-        <PanelIconButton icon={Github} size={14} label="Repository" variant="outline" onClick={() => onOpenExisting?.({ source: 'repo' })} style={{ whiteSpace: 'nowrap' }} />
+        <PanelIconButton icon={Github} size={14} label="Repository" variant="outline" onClick={showGitOption ? handleOpenRepository : () => onOpenExisting?.({ source: 'repo' })} style={{ whiteSpace: 'nowrap' }} />
         <PanelIconButton icon={Link} size={14} label="Link" variant="outline" onClick={() => onOpenExisting?.({ source: 'link' })} style={{ whiteSpace: 'nowrap' }} />
       </div>
     </div>
@@ -875,7 +977,7 @@ const StorageSetupModal = ({
 
       {!deviceFlowShowing && (
       <div style={{ marginTop: '16px' }}>
-        {primaryCta({ label: 'Continue', onClick: () => setStep('git-repo'), disabled: !(hasOAuth && hasApp) })}
+        {primaryCta({ label: 'Continue', onClick: () => setStep(afterConnectStep), disabled: !(hasOAuth && hasApp) })}
         {!(hasOAuth && hasApp) && (
           <div style={{
             marginTop: '8px',
@@ -891,7 +993,7 @@ const StorageSetupModal = ({
         )}
         {hasOAuth && !hasApp && (
           <button
-            onClick={() => setStep('git-repo')}
+            onClick={() => setStep(afterConnectStep)}
             style={{
               display: 'block',
               margin: '10px auto 0',
@@ -1100,7 +1202,146 @@ const StorageSetupModal = ({
     </>
   );
 
+  // Open an Existing Universe → Repository: the repository, then the universe
+  // in it. Repos open in place to show what a scan found there.
+  const renderGitOpenStep = () => (
+    <>
+      {backButton(() => setStep('git-connect'))}
+      <div style={{ textAlign: 'center', marginBottom: '16px', flexShrink: 0 }}>
+        <h2 style={{
+          margin: '0 0 8px 0',
+          color: theme.canvas.textPrimary,
+          fontSize: isCompactLayout ? '1.2rem' : '1.5rem',
+          fontWeight: 'bold',
+          fontFamily: "'EmOne', sans-serif"
+        }}>
+          Open From GitHub
+        </h2>
+        <p style={{ color: theme.canvas.textPrimary, opacity: 0.8, margin: 0, fontSize: isCompactLayout ? '0.8rem' : '0.9rem' }}>
+          Choose the repository your universe lives in.
+        </p>
+      </div>
+
+      <div style={{ ...repoCardStyle(), marginBottom: 0 }}>
+        {repoListLoading && (
+          <div style={{ textAlign: 'center', padding: '14px', fontSize: '0.85rem', color: theme.canvas.textSecondary }}>
+            Loading repositories…
+          </div>
+        )}
+        {repoListError && (
+          <div style={{ padding: '10px', fontSize: '0.8rem', color: statusColors.error }}>
+            {repoListError}
+            <PanelIconButton
+              icon={RefreshCw}
+              label="Retry"
+              variant="ghost"
+              size={14}
+              onClick={loadRepoList}
+              style={{ marginLeft: '4px' }}
+            />
+          </div>
+        )}
+        {!repoListLoading && !repoListError && Array.isArray(repoList) && repoList.length === 0 && (
+          <div style={{ textAlign: 'center', padding: '14px', fontSize: '0.85rem', color: theme.canvas.textSecondary }}>
+            No repositories found on your account.
+          </div>
+        )}
+        {!repoListLoading && Array.isArray(repoList) && repoList.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            {repoList.map((repo) => {
+              const info = repoKeyOf(repo);
+              if (!info) return null;
+              const expanded = openRepoKey === info.key;
+              const scan = repoUniverses[info.key];
+              return (
+                <div key={repo.id || info.key}>
+                  <div
+                    onClick={() => toggleOpenRepo(repo)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '8px 10px',
+                      borderRadius: '6px',
+                      border: `1px solid ${theme.canvas.border}`,
+                      backgroundColor: theme.canvas.bg,
+                      cursor: 'pointer',
+                      fontSize: '0.85rem',
+                      color: theme.canvas.textPrimary,
+                      fontFamily: "'EmOne', sans-serif"
+                    }}
+                  >
+                    {repo.private ? <Lock size={13} /> : <Globe size={13} />}
+                    <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {repo.full_name || repo.name}
+                    </span>
+                    <ArrowRight
+                      size={14}
+                      style={{ transform: expanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}
+                    />
+                  </div>
+
+                  {expanded && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', padding: '6px 0 4px 18px' }}>
+                      {scan?.loading && (
+                        <div style={{ padding: '6px 4px', fontSize: '0.8rem', color: theme.canvas.textSecondary }}>
+                          Looking for universes…
+                        </div>
+                      )}
+                      {scan?.error && (
+                        <div style={{ padding: '6px 4px', fontSize: '0.8rem', color: statusColors.error }}>
+                          {scan.error}
+                        </div>
+                      )}
+                      {Array.isArray(scan?.list) && scan.list.length === 0 && (
+                        <div style={{ padding: '6px 4px', fontSize: '0.8rem', color: theme.canvas.textSecondary }}>
+                          No universes in this repository.
+                        </div>
+                      )}
+                      {Array.isArray(scan?.list) && scan.list.map((universe, index) => {
+                        const label = universe.name || universe.slug
+                          || (universe.fileName || '').replace(/\.redstring$/i, '') || `Universe ${index + 1}`;
+                        return (
+                          <div
+                            key={universe.path || universe.slug || index}
+                            onClick={() => startOpening({ universe, user: info.user, repo: info.repo })}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '8px',
+                              padding: '7px 10px',
+                              borderRadius: '6px',
+                              border: `1px solid ${theme.canvas.border}`,
+                              cursor: 'pointer',
+                              fontSize: '0.82rem',
+                              color: theme.canvas.textPrimary,
+                              fontFamily: "'EmOne', sans-serif"
+                            }}
+                            onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = theme.darkMode ? 'rgba(255,255,255,0.1)' : '#fff'; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+                          >
+                            <FileText size={13} />
+                            <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {label}
+                            </span>
+                            <ArrowRight size={13} />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </>
+  );
+
   const renderGitFinishingStep = () => {
+    const opening = gitIntent === 'open';
+    const tasks = opening ? OPEN_REPO_TASKS : GIT_ONBOARDING_TASKS;
     return (
       <>
         <style>{'@keyframes rs-onboarding-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }'}</style>
@@ -1112,7 +1353,7 @@ const StorageSetupModal = ({
             fontWeight: 'bold',
             fontFamily: "'EmOne', sans-serif"
           }}>
-            Setting Up Your Universe
+            {opening ? 'Opening Your Universe' : 'Setting Up Your Universe'}
           </h2>
         </div>
 
@@ -1122,7 +1363,7 @@ const StorageSetupModal = ({
           gap: '10px',
           fontFamily: "'EmOne', sans-serif"
         }}>
-          {GIT_ONBOARDING_TASKS.map((task) => {
+          {tasks.map((task) => {
             const state = taskStates[task.id];
             const status = state?.status || 'pending';
             const icon = status === 'done'
@@ -1172,14 +1413,14 @@ const StorageSetupModal = ({
                 icon={ArrowLeft}
                 label="Back"
                 variant="outline"
-                onClick={() => setStep('git-repo')}
+                onClick={() => setStep(afterConnectStep)}
               />
               <PanelIconButton
                 icon={RefreshCw}
                 label="Retry"
                 labelPosition="right"
                 variant="solid"
-                onClick={startFinishing}
+                onClick={opening ? () => startOpening(openPick, { retry: true }) : startFinishing}
               />
             </div>
           </div>
@@ -1192,6 +1433,7 @@ const StorageSetupModal = ({
     switch (step) {
       case 'git-connect': return renderGitConnectStep();
       case 'git-repo': return renderGitRepoStep();
+      case 'git-open': return renderGitOpenStep();
       case 'git-finishing': return renderGitFinishingStep();
       case 'slots':
       default:

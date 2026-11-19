@@ -552,6 +552,7 @@ function UniverseHost() {
             sessionStorage.removeItem('redstring_onboarding_step');
             sessionStorage.removeItem('redstring_onboarding_slug');
             sessionStorage.removeItem('redstring_onboarding_universe_name');
+            sessionStorage.removeItem('redstring_onboarding_intent');
           } catch { }
           setShowStorageSetupModal(false);
           // As the X does: only with no universe at all is the canvas told
@@ -575,6 +576,7 @@ function UniverseHost() {
             sessionStorage.removeItem('redstring_onboarding_step');
             sessionStorage.removeItem('redstring_onboarding_slug');
             sessionStorage.removeItem('redstring_onboarding_universe_name');
+            sessionStorage.removeItem('redstring_onboarding_intent');
           } catch { }
           setShowStorageSetupModal(false);
           // Dismissal leaves no universe (nothing is preloaded anymore), so
@@ -642,6 +644,7 @@ function UniverseHost() {
               sessionStorage.removeItem('redstring_onboarding_step');
               sessionStorage.removeItem('redstring_onboarding_slug');
               sessionStorage.removeItem('redstring_onboarding_universe_name');
+              sessionStorage.removeItem('redstring_onboarding_intent');
             }
           } catch { }
           setShowStorageSetupModal(false);

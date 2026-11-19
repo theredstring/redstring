@@ -42,6 +42,7 @@ import { getStatusColors } from './utils/statusColors.js';
 import StatusBanner from './components/StatusBanner.jsx';
 import universeBackend from './services/universeBackend.js';
 import universeBackendBridge from './services/universeBackendBridge.js';
+import { openRepoUniverse, rememberManagedRepository } from './services/gitOnboardingService.js';
 import repoDiscoveryCache from './services/repoDiscoveryCache.js';
 import { freeRepoTarget, readUniverseUpload } from './services/universeUpload.js';
 import saveCoordinator from './services/SaveCoordinator';
@@ -2558,91 +2559,16 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
       setRepositoryIntent(null);
       setShowRepositoryManager(false);
 
-      // Always create a NEW universe — never overwrite the active one
-      // Derive name from the discovered file name, with (2), (3) dedup
-      const baseName = (discovered.fileName || discovered.name || 'Universe')
-        .replace(/\.redstring$/i, '');
-      const uniqueName = buildUniqueUniverseName(baseName, serviceState.universes);
-
-      // Create a fresh universe with Git-only config (no local slot → no conflict detection)
-      const creationResult = await universeManagerService.createUniverse(uniqueName, {
-        enableGit: true,
-        enableLocal: false,
-        sourceOfTruth: 'git'
-      });
-
-      const createdSlug = creationResult?.createdUniverse?.slug
-        || creationResult?.slug
-        || (creationResult?.universes || []).find(u => u.name === uniqueName)?.slug;
-
-      if (!createdSlug) {
-        throw new Error('Unable to determine universe slug after creation');
-      }
-
-      // Resolve git path parts from discovered universe
-      const resolvePathParts = (universePath, fileName) => {
-        const parts = (universePath || '').split('/').filter(Boolean);
-        if (parts.length >= 3) {
-          return { folder: parts[parts.length - 2], file: parts[parts.length - 1] };
-        }
-        if (fileName) {
-          return {
-            folder: (parts[parts.length - 1] || '').replace(/\.redstring$/i, '') || createdSlug,
-            file: fileName
-          };
-        }
-        return { folder: createdSlug, file: `${createdSlug}.redstring` };
-      };
-
-      const inferredPath = discovered.path || (discovered.location && discovered.fileName ? `${discovered.location}/${discovered.fileName}` : null);
-      const inferredFile = discovered.fileName || (inferredPath ? inferredPath.split('/').pop() : null);
-      const { folder: resolvedFolder, file: resolvedFile } = resolvePathParts(inferredPath, inferredFile);
-
-      // Attach git repo config (folder, file, linkedRepo)
-      await universeManagerService.attachGitRepository(createdSlug, {
-        user: repo.user,
-        repo: repo.repo,
+      // Always a NEW universe, never the active one overwritten (shared with
+      // onboarding's Open an Existing Universe → Repository).
+      await openRepoUniverse({
+        discovered,
+        repo,
         authMethod: dataAuthMethod || 'oauth',
-        universeFolder: resolvedFolder || createdSlug,
-        universeFile: resolvedFile || `${createdSlug}.redstring`
+        universes: serviceState.universes
       });
-
-      // Add repo to managed list
-      const alreadyManaged = managedRepositories.some(r =>
-        `${r.owner?.login || r.owner}/${r.name}` === repoKey
-      );
-      if (!alreadyManaged) {
-        const repoObject = {
-          name: repo.repo,
-          owner: { login: repo.user },
-          full_name: repoKey,
-          html_url: `https://github.com/${repo.user}/${repo.repo}`,
-          id: `discovered-${repo.user}-${repo.repo}`
-        };
-        const newList = [...managedRepositories, repoObject];
-        setManagedRepositories(newList);
-        localStorage.setItem(getStorageKey('redstring-managed-repositories'), JSON.stringify(newList));
-      }
-
-      // Force a load from Git. We CANNOT use switchUniverse here:
-      // createUniverse already set the new slug as the active universe AND
-      // loaded the empty placeholder state into the store. switchUniverse
-      // would early-return ("already active") and the Git data would never
-      // get pulled in — until the next page refresh, at which point the
-      // engine has likely already saved the empty state OVER the repo.
-      // reloadUniverse bypasses the activity guard and always runs the
-      // source-of-truth load.
-      await universeBackendBridge.reloadUniverse(createdSlug);
-      // reloadUniverse loads data but does NOT set up the sync engine
-      // (switchActiveUniverse does, but we skipped that). Ensure the engine
-      // exists now so the first edit actually persists — and crucially, so
-      // it starts with the real loaded data as its baseline rather than
-      // the empty placeholder from createUniverse.
-      try {
-        await universeBackend.ensureGitSyncEngine(createdSlug);
-      } catch (engineErr) {
-        umWarn('[UniverseManager] Import: engine setup after load failed:', engineErr?.message || engineErr);
-      }
+      // The shared path already saved it to the list; pick that list up.
+      setManagedRepositories(rememberManagedRepository(repo));
       await refreshState();
     } catch (err) {
       umError('[UniverseManager] Import discovered failed:', err);
