@@ -702,7 +702,7 @@ const StorageSetupModal = ({
       <div style={{ textAlign: 'center', marginBottom: isCompactLayout ? '18px' : '22px', flexShrink: 0 }}>
         <h1 style={{
           margin: '0 0 6px 0',
-          color: theme.accent.primary,
+          color: theme.canvas.brandText,
           fontSize: isCompactLayout ? '1.25rem' : '1.45rem',
           fontWeight: '600',
           fontFamily: "'EmOne', sans-serif"
@@ -735,7 +735,7 @@ const StorageSetupModal = ({
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, flex: 1, minWidth: 0 }}>
               {workspaceFolder
-                ? <FolderOpen size={22} color={theme.accent.primary} />
+                ? <FolderOpen size={22} color={theme.canvas.brandText} />
                 : <Folder size={22} color={theme.canvas.textSecondary} />}
               <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
                 <span style={{ fontSize: '0.72rem', fontWeight: 600, color: theme.canvas.textPrimary, fontFamily: "'EmOne', sans-serif" }}>
@@ -907,7 +907,7 @@ const StorageSetupModal = ({
                 })}
               </div>
             ) : (
-              <span style={{ color: theme.accent.primary, fontWeight: 700 }}>
+              <span style={{ color: theme.canvas.brandText, fontWeight: 700 }}>
                 {sourceOfTruth === 'git' ? 'GitHub' : sourceOfTruth === 'local' ? (isCapacitor() ? 'On This Device' : 'Local File') : 'Browser'}
               </span>
             )}

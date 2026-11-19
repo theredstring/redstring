@@ -265,7 +265,7 @@ const GitReconnectModal = ({
         }}>
       <div ref={contentRef} style={{ margin: 'auto 0', width: '100%' }}>
         <div style={{ textAlign: 'center', marginBottom: 16 }}>
-          <h2 style={text(isCompact ? '1.2rem' : '1.45rem', { margin: '0 0 8px 0', color: theme.accent.primary, fontWeight: 600 })}>
+          <h2 style={text(isCompact ? '1.2rem' : '1.45rem', { margin: '0 0 8px 0', color: theme.canvas.brandText, fontWeight: 600 })}>
             {deviceFlowShowing ? (github.deviceFlowState.title || 'Connect GitHub') : `Reconnect ${universeName}`}
           </h2>
           {!deviceFlowShowing && (repoLabel || (mode === 'load' && !loaded)) && (

@@ -495,6 +495,13 @@ function saveOAuthHealth(health) {
 
 const __oauthHealth = loadOAuthHealth();
 
+// Every oauth-server route except the app info/client-id lookups calls GitHub
+// from the Worker, several times in a row for App discovery (/user/installations,
+// then /user, an RS256 JWT and /app/installations), and a cold Worker adds
+// seconds on top. A short limit aborted Detect install before the server could
+// answer. A server that is actually down still fails fast (connection refused).
+const OAUTH_FETCH_TIMEOUT_MS = 15000;
+
 // OAuth-specific fetch function with aggressive error suppression.
 // Accepts a non-standard `bypassCooldown` option (extracted before passing to fetch)
 // so user-initiated actions can always attempt a real request even during cooldown.
@@ -535,7 +542,7 @@ export async function oauthFetch(path, options = {}) {
 
   // Make the request with a timeout to fail fast
   const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-  const timeoutId = controller ? setTimeout(() => controller.abort(), 2000) : null; // 2 second timeout
+  const timeoutId = controller ? setTimeout(() => controller.abort(), OAUTH_FETCH_TIMEOUT_MS) : null;
 
   const fetchOptions = {
     ...fetchInit,

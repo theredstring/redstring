@@ -552,7 +552,12 @@ export class PersistentAuth {
   /**
    * Attempt auto-connect using stored GitHub App installation
    */
-  async attemptAppAutoConnect() {
+  async attemptAppAutoConnect({ userInitiated = false } = {}) {
+    // A user-initiated search (Detect install, Install, coming back from the
+    // install page) must reach the server even while background calls are in
+    // cooldown; otherwise one earlier timeout turns every press into "not
+    // installed" for five minutes.
+    const bypassCooldown = userInitiated;
     await this.ensureAuthStateLoaded().catch(() => {});
     let appInstallation = this.getAppInstallation();
 
@@ -605,7 +610,8 @@ export class PersistentAuth {
         }
         this.lastAppDiscoveryFailure = null;
         const listResp = await oauthFetch('/api/github/app/installations', {
-          headers: { 'Authorization': `token ${userOauthToken}` }
+          headers: { 'Authorization': `token ${userOauthToken}` },
+          bypassCooldown
         }).catch(() => null);
         if (!listResp) {
           this.lastAppDiscoveryFailure = { reason: 'unreachable', at: Date.now() };
@@ -710,7 +716,8 @@ export class PersistentAuth {
               const tokenResp = await oauthFetch('/api/github/app/installation-token', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ installation_id: installationId })
+                body: JSON.stringify({ installation_id: installationId }),
+                bypassCooldown
               });
 
               if (tokenResp.ok) {
@@ -721,7 +728,7 @@ export class PersistentAuth {
                 let repositories = [];
                 let userData = {};
                 try {
-                  const instResp = await oauthFetch(`/api/github/app/installation/${installationId}`);
+                  const instResp = await oauthFetch(`/api/github/app/installation/${installationId}`, { bypassCooldown });
                   if (instResp.ok) {
                     const instData = await instResp.json();
                     repositories = Array.isArray(instData?.repositories) ? instData.repositories : [];
@@ -769,7 +776,8 @@ export class PersistentAuth {
       const tokenResponse = await oauthFetch('/api/github/app/installation-token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ installation_id: appInstallation.installationId })
+        body: JSON.stringify({ installation_id: appInstallation.installationId }),
+        bypassCooldown
       });
 
       if (!tokenResponse.ok) {
@@ -1711,7 +1719,7 @@ export class PersistentAuth {
     vlog('[PersistentAuth] Force App discovery triggered');
     // User-initiated → clear sticky disconnect so we don't no-op.
     try { removeLocalStorageItem(LOCAL_STORAGE_KEYS.app.disconnectedAt); } catch { /* best effort */ }
-    return this.attemptAppAutoConnect();
+    return this.attemptAppAutoConnect({ userInitiated: true });
   }
 
   /**

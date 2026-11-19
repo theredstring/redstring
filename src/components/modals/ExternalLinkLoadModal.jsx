@@ -253,7 +253,7 @@ const ExternalLinkLoadModal = ({
   const statusColor = useMemo(() => {
     if (error) return theme.alert?.error?.text || '#c93030';
     if (classification.kind === 'invalid') return theme.canvas.textSecondary;
-    return theme.canvas.brand || theme.canvas.textPrimary;
+    return theme.canvas.brandText || theme.canvas.textPrimary;
   }, [error, classification, theme]);
 
   const statusText = useMemo(() => {
