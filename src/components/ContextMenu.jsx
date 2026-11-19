@@ -71,12 +71,15 @@ const ContextMenu = ({ x, y, options = [], onClose, onSelect, grow = 'right', ma
     }
 
     // Everything above is client space (a button's rect, a touch point). This
-    // card's left/top may not be: inside #root, its transform makes #root the
+    // card's left/top are not, inside #root: its transform makes #root the
     // containing block, and on iOS #root sits one safe-area inset down, so the
-    // card landed that far below its button (appViewport.js). Portalled to
-    // <body> it measures from the viewport. The (0, 0) measurement says which.
-    left -= originX;
-    top -= originY;
+    // card landed that far below its button (appViewport.js). Only there: the
+    // Unified Selector's menus, portalled out of #root into its card, keep the
+    // placement they have always had, gap and all.
+    if (el.closest('#root')) {
+      left -= originX;
+      top -= originY;
+    }
 
     // Write it straight back before this layout pass ends — the state update is
     // what keeps it there across the next render.
