@@ -4,6 +4,37 @@ All notable changes to Redstring are documented in this file. Logs should be bri
 
 Versions before 0.1.0-alpha were never released. They are numbered after the fact to mark milestones in development.
 
+## [1.0.0] - 2026-11-19
+
+Redstring 1.0.
+
+### Added
+- **Open an Existing Universe** when you start: from a file, a GitHub repository or a link, for new and returning users alike.
+- **Edit Formula** reopens an equation in the formula box, typed and named as it was made. Saving writes over it.
+- **Formulas have names**, set in the formula box or with Edit Name on the title.
+- **An equation's symbols in its About**: each letter and the Thing it stands for. Swap, or a click on an empty slot, picks or makes one.
+- **Privacy Policy** in Settings › About.
+- **The panel toggles show their keys**, 1 and 2, on keyboards.
+
+### Changed
+- **Onboarding fits a phone held upright.** Create a New Universe and Open an Existing Universe are two cards, text wraps instead of cutting off, and every step stays in the one box, with no X.
+- **Connect GitHub is one screen wherever GitHub is needed**: onboarding, the repository picker and copying a linked universe to a repository. Browsing repositories needs both GitHub OAuth and the GitHub App.
+- **A universe file no longer keeps your view.** The camera and the active web stay on your device, a universe opens on its first open web, and moving around is no longer an edit to save.
+- **Control panels start hidden**: connections, groups, equations and the carousel. Turn them on in Settings.
+- **Panels rewrap their text while you resize them**, not only on release.
+- **Back to Civilization frames a group's whole box**, title tab included.
+- **Android needs 7.0 or later.**
+
+### Fixed
+- **Making Git the source of truth could write the local universe over a repository holding a different one.** It now asks which to keep, and never writes to a repository it couldn't read.
+- **A tap could press the button that appeared under it**: onboarding's Repository went on to make a repository nobody chose.
+- **A fresh install on iPhone or iPad skipped onboarding** and said "Local file not found."
+- **A file opened on iPhone, iPad or Android couldn't be found again** after a restart.
+- **Menus in the Universes panel opened too low** on iPhone and iPad.
+- **Labels sized before their font loaded** kept the wrong width.
+- **The tap that switched to a web's tab counted toward renaming it.**
+- **Detecting the GitHub App timed out** before the server could answer.
+
 ## [0.15.12] - 2026-11-07
 
 ### Changed
