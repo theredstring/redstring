@@ -988,7 +988,7 @@ const StorageSetupModal = ({
           }}>
             {!hasOAuth
               ? 'Connect GitHub OAuth to continue.'
-              : 'Install the GitHub App for auto-sync — it will be detected automatically.'}
+              : 'Install the GitHub App for auto-sync. It will be detected automatically.'}
           </div>
         )}
         {hasOAuth && !hasApp && (

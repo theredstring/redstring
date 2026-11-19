@@ -169,12 +169,12 @@ const GitReconnectModal = ({
   const diagnosis = (() => {
     if (checking) return 'Checking your GitHub connection…';
     if (loaded && fullyConnected) {
-      return mode === 'sync' ? `Connected. ${universeName} will sync again.` : `Connected — ${universeName} is loaded.`;
+      return mode === 'sync' ? `Connected. ${universeName} will sync again.` : `Connected. ${universeName} is loaded.`;
     }
     if (loaded && hasOAuth && !hasApp) {
       return mode === 'sync'
-        ? `The GitHub App isn’t linked. ${universeName} still syncs through OAuth, but the App is the more reliable path — link it below.`
-        : `${universeName} is loaded. The GitHub App isn’t linked yet — it’s the more reliable path for sync, so link it below.`;
+        ? `The GitHub App isn’t linked. ${universeName} still syncs through OAuth, but the App is the more reliable path. Link it below.`
+        : `${universeName} is loaded. The GitHub App isn’t linked yet. It’s the more reliable path for sync, so link it below.`;
     }
     if (!hasConnection) {
       return mode === 'sync'
@@ -187,7 +187,7 @@ const GitReconnectModal = ({
     if (oauthVerification === 'unknown') {
       return 'Redstring couldn’t reach GitHub. If you’re offline, try again once you’re back.';
     }
-    return `You’re signed in, but ${repoRef} couldn’t be read. That’s usually temporary — try again.`;
+    return `You’re signed in, but ${repoRef} couldn’t be read. That’s usually temporary. Try again.`;
   })();
 
   const isCompact = viewportWidth <= 500;

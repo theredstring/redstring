@@ -1151,9 +1151,9 @@ class GitSyncEngine {
         this.remoteConflictPending = true;
         this.remoteUnrecognized = true;
         this.lastKnownRemoteSha = undefined; // keep first contact armed
-        this.notifyStatus('warning', 'The repository file could not be read as a universe. Saving is paused so it is not overwritten — reload to try reading it again.');
+        this.notifyStatus('warning', 'The repository file could not be read as a universe. Saving is paused so it is not overwritten. Reload to try reading it again.');
         const unrecognized = new Error(
-          `Remote file at ${path} is ${remoteUnparseable ? 'not valid JSON' : 'not a recognizable Redstring document'} — refusing to overwrite it.`
+          `Remote file at ${path} is ${remoteUnparseable ? 'not valid JSON' : 'not a recognizable Redstring document'}. Refusing to overwrite it.`
         );
         unrecognized.code = 'REMOTE_UNRECOGNIZED';
         throw unrecognized;
@@ -1184,8 +1184,8 @@ class GitSyncEngine {
       }
 
       this._armConflict(remote.sha);
-      this.notifyStatus('warning', 'This universe changed on another device — choose which version to keep.');
-      const conflictError = new Error('Remote universe changed since last sync — resolution required before pushing.');
+      this.notifyStatus('warning', 'This universe changed on another device. Choose which version to keep.');
+      const conflictError = new Error('Remote universe changed since last sync. Resolution required before pushing.');
       conflictError.code = 'REMOTE_CONFLICT';
       throw conflictError;
     }
@@ -1264,9 +1264,9 @@ class GitSyncEngine {
       }
       this.remoteConflictPending = true;
       this.remoteUnrecognized = true;
-      this.notifyStatus('warning', 'The repository file could not be read as a universe. Saving is paused so it is not overwritten — reload to try reading it again.');
+      this.notifyStatus('warning', 'The repository file could not be read as a universe. Saving is paused so it is not overwritten. Reload to try reading it again.');
       const unrecognized = new Error(
-        `Remote file at ${path} is ${unparseable ? 'not valid JSON' : 'not a recognizable Redstring document'} — refusing to overwrite it.`
+        `Remote file at ${path} is ${unparseable ? 'not valid JSON' : 'not a recognizable Redstring document'}. Refusing to overwrite it.`
       );
       unrecognized.code = 'REMOTE_UNRECOGNIZED';
       throw unrecognized;
@@ -1308,8 +1308,8 @@ class GitSyncEngine {
     if (decision === 'overwrite') return;
 
     this._armConflict(remote.sha);
-    this.notifyStatus('warning', 'The repository has existing data that was never loaded this session — choose which version to keep.');
-    const conflictError = new Error('Remote universe has data this session never loaded — refusing to overwrite until resolved.');
+    this.notifyStatus('warning', 'The repository has existing data that was never loaded this session. Choose which version to keep.');
+    const conflictError = new Error('Remote universe has data this session never loaded. Refusing to overwrite until resolved.');
     conflictError.code = 'REMOTE_CONFLICT';
     throw conflictError;
   }
@@ -1464,7 +1464,7 @@ class GitSyncEngine {
           againData = again.content && again.content.trim() ? JSON.parse(again.content) : null;
         } catch (_) { againData = null; }
         if (!againData || !isRecognizedShape(againData)) {
-          const unrecognized = new Error(`Remote file at ${path} stopped reading as a universe mid-merge — refusing to overwrite it.`);
+          const unrecognized = new Error(`Remote file at ${path} stopped reading as a universe mid-merge. Refusing to overwrite it.`);
           unrecognized.code = 'REMOTE_UNRECOGNIZED';
           throw unrecognized;
         }

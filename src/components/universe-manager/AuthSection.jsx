@@ -185,7 +185,7 @@ const AuthSection = ({
             </div>
           ) : (!hasApp && appNeedsOAuth) ? (
             <div style={{ fontSize: '0.75rem', color: theme.canvas.textSecondary }}>
-              Connect OAuth first — Redstring finds the App through it
+              Connect OAuth first. Redstring finds the App through it
             </div>
           ) : (
             <div style={{ fontSize: '0.75rem', color: theme.canvas.textSecondary }}>Enables secure auto-sync with Git</div>

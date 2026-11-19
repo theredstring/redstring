@@ -1592,7 +1592,7 @@ class UniverseBackend {
                       const userHasData = currentNodes > 0 || currentGraphs > 1;
                       if (userHasData) {
                         umWarn(`[UniverseBackend] Skipping background load: user has ${currentNodes} nodes / ${currentGraphs} graphs already in the store. Bg load would wipe live edits.`);
-                        this.notifyStatus('info', `Kept your edits — background load discarded`);
+                        this.notifyStatus('info', `Kept your edits. Background load discarded.`);
                         // The remote was READ but its content was NOT applied —
                         // the store holds the user's racing edits instead. The
                         // engine-path load seeds the SHA at read time, which
@@ -2286,7 +2286,7 @@ class UniverseBackend {
           && (reason.startsWith('404 ') || reason.startsWith('403 '));
         if (provider.authMethod === 'github-app' && isRepoAccessFailure) {
           umWarn(`[UniverseBackend] App provider unavailable (${reason.slice(0, 80)}…); retrying with OAuth`);
-          this.notifyStatus('warning', 'GitHub App lacks repo access — falling back to OAuth');
+          this.notifyStatus('warning', 'GitHub App lacks repo access. Falling back to OAuth.');
           try {
             const oauthProvider = await this.createProviderForUniverse(universe, { forceOauth: true });
             if (oauthProvider && await oauthProvider.isAvailable()) {
@@ -2388,7 +2388,7 @@ class UniverseBackend {
           isRemoteDivergence: true
         };
         this.pendingConflict = conflict;
-        this.notifyStatus('warning', `"${liveUniverse.name || universeSlug}" was changed on another device — choose which version to keep.`);
+        this.notifyStatus('warning', `"${liveUniverse.name || universeSlug}" was changed on another device. Choose which version to keep.`);
         if (typeof window !== 'undefined') {
           window.dispatchEvent(new CustomEvent('redstring:slot-conflict', { detail: conflict }));
         }
@@ -3628,11 +3628,11 @@ class UniverseBackend {
           // skip as success updates lastSync for a commit that never
           // happened.
           if (gitSyncEngine.remoteConflictPending) {
-            throw new Error('Commit blocked — repository version conflict awaiting resolution');
+            throw new Error('Commit blocked: repository version conflict awaiting resolution');
           }
           const currentHash = gitSyncEngine.generateStateHash(storeState);
           if (gitSyncEngine.lastCommittedHash !== currentHash) {
-            throw new Error('Commit skipped (rate limited) — changes not yet pushed');
+            throw new Error('Commit skipped (rate limited). Changes not yet pushed.');
           }
         }
       } else {
@@ -4886,7 +4886,7 @@ class UniverseBackend {
     const browserIsRealPersistence = !hasWritableLocalFile;
     if (browserRes?.data && browserIsRealPersistence) {
       umLog('[UniverseBackend] Using Browser Storage fallback (git-only / no local file handle)');
-      this.notifyStatus('warning', 'Loaded from local browser cache — Git had no data yet.');
+      this.notifyStatus('warning', 'Loaded from local browser cache. Git had no data yet.');
       return this.syncAndReturn(universe, browserRes.data, {
         source: SOURCE_OF_TRUTH.BROWSER,
         allowPermissionPrompt
@@ -6033,7 +6033,7 @@ class UniverseBackend {
         graphCount: lastGood.graphCount
       };
       this.pendingRestoreOffer = offer;
-      this.notifyStatus('warning', `"${offer.universeName}" loaded empty — an earlier version holds ${offer.nodeCount} things.`);
+      this.notifyStatus('warning', `"${offer.universeName}" loaded empty. An earlier version holds ${offer.nodeCount} things.`);
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new CustomEvent('redstring:restore-available', { detail: offer }));
       }
@@ -7450,7 +7450,7 @@ class UniverseBackend {
             this.authStatus = fresh;
             authOk = !!(fresh?.isAuthenticated || persistentAuth.hasValidTokens?.());
             if (!authOk) {
-              issues.push('GitHub session expired — sign in again to resume sync.');
+              issues.push('GitHub session expired. Sign in again to resume sync.');
             }
           } catch (e) {
             umWarn('[UniverseBackend] Auth revalidation failed:', e);
@@ -7784,7 +7784,7 @@ class UniverseBackend {
             || postCounts.graphs > preloadSnapshot.graphs;
           if (userGrew) {
             umWarn(`[UniverseBackend] Discarding repo load: user edited during fetch (snapshot ${preloadSnapshot.nodes}n/${preloadSnapshot.graphs}g → ${postCounts.nodes}n/${postCounts.graphs}g).`);
-            this.notifyStatus('info', 'Kept your edits — repository load discarded');
+            this.notifyStatus('info', 'Kept your edits. Repository load discarded.');
             return { success: false, source: sourceOfTruth, discardedDueToEdits: true };
           }
         } catch { /* on guard failure, fall through to load (preserving old behavior) */ }

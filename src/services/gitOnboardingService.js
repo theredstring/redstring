@@ -136,7 +136,7 @@ export async function fillGitSlot({
     owner = created.owner?.login || created.owner?.name;
     repo = created.name;
     onProgress('repo', 'done', existed
-      ? `Repository already existed — linking @${owner}/${repo}`
+      ? `Repository already existed. Linking @${owner}/${repo}`
       : `Created @${owner}/${repo}`);
   } else {
     owner = existingRepo?.owner?.login || existingRepo?.owner?.name || existingRepo?.owner

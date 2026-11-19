@@ -52,7 +52,7 @@ const refreshFields = (tokenData) => (tokenData?.refresh_token
 export const appDetectionRequiresOAuth = () => !usesDeviceFlowAuth();
 
 export const APP_NEEDS_OAUTH_MESSAGE =
-  'Redstring finds your GitHub App install through your OAuth sign-in, which isn’t working right now. Reconnect OAuth first — the App is picked up automatically after that.';
+  'Redstring finds your GitHub App install through your OAuth sign-in, which isn’t working right now. Reconnect OAuth first. The App is picked up automatically after that.';
 
 /**
  * Web only: make sure the OAuth token is live before App discovery leans on

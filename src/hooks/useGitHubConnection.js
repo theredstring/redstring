@@ -203,9 +203,9 @@ export function useGitHubConnection({ active = true, beforeRedirect = null, resp
       if (result?.needsOAuth) {
         setAuthNotice({ type: 'warning', message: APP_NEEDS_OAUTH_MESSAGE });
       } else if (result?.connected) {
-        setAuthNotice({ type: 'info', message: 'GitHub App linked — it was already installed on your account.' });
+        setAuthNotice({ type: 'info', message: 'GitHub App linked. It was already installed on your account.' });
       } else if (result?.installPending) {
-        setAuthNotice({ type: 'warning', message: 'Install the GitHub App in your browser, then come back — Redstring will detect it.' });
+        setAuthNotice({ type: 'warning', message: 'Install the GitHub App in your browser, then come back. Redstring will detect it.' });
       }
     } catch (err) {
       setAuthNotice({ type: 'error', message: `GitHub App connection failed: ${err.message}` });

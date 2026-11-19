@@ -1953,7 +1953,7 @@ class SaveCoordinator {
     if (now - this._lastGitUnhealthyWarnTime < 30000) return;
     this._lastGitUnhealthyWarnTime = now;
     console.warn('[SaveCoordinator] Git sync engine unhealthy — state not queued for commit');
-    this.notifyStatus('warning', 'Git sync is unavailable — changes are saved locally but not synced.', { persistent: true });
+    this.notifyStatus('warning', 'Git sync is unavailable. Changes are saved locally but not synced.', { persistent: true });
   }
 
   /**
