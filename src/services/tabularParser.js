@@ -475,7 +475,7 @@ export function buildLLMSummary(parsed, maxSampleRows = 5) {
   lines.push(`## Tabular Data: ${filename}`);
   lines.push(`Format: ${format.toUpperCase()} | ${totalRows} rows x ${columns.length} columns`);
   if (parsed.isSampled) {
-    lines.push(`(Showing first ${rows.length} of ${totalRows} rows — full data available to tools)`);
+    lines.push(`(Showing first ${rows.length} of ${totalRows} rows; full data available to tools)`);
   }
   if (metadata?.sheetNames) {
     lines.push(`Sheets: ${metadata.sheetNames.join(', ')} (active: ${metadata.activeSheet})`);

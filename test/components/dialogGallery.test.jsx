@@ -102,7 +102,7 @@ describe('DialogGallery', () => {
     fireEvent.click(screen.getByText('Close Preview'));
 
     // Pick a dialog that actually has a footer.
-    const confirmRow = screen.getByText('Confirm — default').closest('.settings-row');
+    const confirmRow = screen.getByText('Confirm: default').closest('.settings-row');
     fireEvent.click(within(confirmRow).getByText('Show').closest('button'));
     expect(document.querySelector('.rs-dialog-footer').style.backgroundColor).toBe(band);
   });
@@ -188,7 +188,7 @@ describe('DialogGallery', () => {
     fireEvent.click(screen.getByText('Use Git Version'));
     expect(within(slotRow).getByText('onChooseGit')).toBeTruthy();
 
-    const confirmRow = screen.getByText('Confirm — default').closest('.settings-row');
+    const confirmRow = screen.getByText('Confirm: default').closest('.settings-row');
     fireEvent.click(within(confirmRow).getByText('Show').closest('button'));
     fireEvent.click(screen.getByText('Leave'));
     expect(within(confirmRow).getByText('onConfirm')).toBeTruthy();

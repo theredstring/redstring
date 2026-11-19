@@ -1279,7 +1279,7 @@ const LeftSemanticDiscoveryView = ({ storeActions, nodePrototypesMap, openRightP
               <div style={{ fontSize: 11, color: availableSeedCount > 0 ? theme.canvas.textSecondary : theme.accent.primary, marginTop: -6 }}>
                 {availableSeedCount > 0
                   ? `Available seeds from current graphs: ${availableSeedCount}`
-                  : 'No graph seeds found — loader may start empty until you add nodes or supply a query.'}
+                  : 'No graph seeds found. The loader may start empty until you add nodes or supply a query.'}
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <label style={{ display: 'flex', flexDirection: 'column', fontSize: 11, color: theme.canvas.textPrimary, gap: 6 }}>

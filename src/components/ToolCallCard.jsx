@@ -276,7 +276,7 @@ const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, times
                 // all: it's what makes a bare number checkable without following
                 // it. The row clips to one line, so a long title costs nothing.
                 return link.label
-                    ? `Linked ${id} to "${link.nodeName}" — ${link.label}`
+                    ? `Linked ${id} to "${link.nodeName}": ${link.label}`
                     : `Linked ${id} to "${link.nodeName}"`;
             }
 
@@ -294,7 +294,7 @@ const ToolCallCard = ({ toolCallId, toolName, status, args, result, error, times
             if (rows.length === 1) {
                 const top = rows[0]?.candidates?.[0];
                 return top
-                    ? `${top.identifier} — ${top.label}`
+                    ? `${top.identifier}: ${top.label}`
                     : `Nothing found for "${rows[0]?.query}"`;
             }
             return `Found candidates for ${found} of ${rows.length} work${rows.length !== 1 ? 's' : ''}`;

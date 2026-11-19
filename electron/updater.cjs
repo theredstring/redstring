@@ -608,7 +608,7 @@ function initUpdater({ app, getMainWindow, isDev, isTrustedSender = () => false,
         log('error', 'No staged bundle path — cannot install');
         send('updater:error', {
           phase: 'install',
-          message: 'No staged update found — try clearing the cache and re-downloading'
+          message: 'No staged update found. Try clearing the cache and re-downloading.'
         });
         return;
       }
@@ -617,7 +617,7 @@ function initUpdater({ app, getMainWindow, isDev, isTrustedSender = () => false,
         log('error', 'Staged bundle rejected:', vetted.reason);
         send('updater:error', {
           phase: 'install',
-          message: 'Update could not be verified (' + vetted.reason + ') — clear cache and re-download'
+          message: 'Update could not be verified (' + vetted.reason + '). Clear cache and re-download.'
         });
         return;
       }

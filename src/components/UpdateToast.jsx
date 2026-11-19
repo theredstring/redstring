@@ -139,9 +139,9 @@ export default function UpdateToast() {
 
   let subtitle;
   if (isMultiFail) {
-    subtitle = 'Install keeps failing — download manually';
+    subtitle = 'Install keeps failing. Download manually.';
   } else if (isInstallFailed) {
-    subtitle = 'Install failed — download from GitHub';
+    subtitle = 'Install failed. Download from GitHub.';
   } else if (isReady) {
     subtitle = 'Restart to update';
   } else if (isDownloadRetrying) {

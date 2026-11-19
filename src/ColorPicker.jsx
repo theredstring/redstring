@@ -750,7 +750,7 @@ const ColorPicker = ({
           color={PANEL_INK}
           active={isPicking}
           title={isPicking
-            ? 'Picking — click a color, or Esc to cancel'
+            ? 'Picking: click a color, or Esc to cancel'
             : 'Pick a color from anywhere in Redstring'}
           onClick={(e) => {
             e.stopPropagation();

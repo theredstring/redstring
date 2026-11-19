@@ -260,7 +260,7 @@ const ExternalLinkLoadModal = ({
     if (error) return error;
     if (!url.trim()) return 'Paste a link to a .redstring file, GitHub file, folder, or repo.';
     if (classification.kind === 'invalid') return classification.reason || 'Unrecognized URL';
-    if (scanning) return `${kindLabel(classification.kind)} — scanning…`;
+    if (scanning) return `${kindLabel(classification.kind)}, scanning…`;
     return kindLabel(classification.kind);
   }, [error, url, classification, scanning]);
 

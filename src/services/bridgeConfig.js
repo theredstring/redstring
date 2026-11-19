@@ -185,7 +185,7 @@ export function getOAuthBaseUrl() {
 /** Thrown when a server-backed feature is used with no endpoint configured. */
 export class NoRemoteOriginError extends Error {
   constructor(what = 'This feature') {
-    super(`${what} needs a Redstring server endpoint. None is configured — set one in AI settings, or run one locally.`);
+    super(`${what} needs a Redstring server endpoint. None is configured. Set one in AI settings, or run one locally.`);
     this.name = 'NoRemoteOriginError';
     this.isNoRemoteOrigin = true;
   }

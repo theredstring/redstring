@@ -140,7 +140,7 @@ export function assertRawBodyMatches(content, size, label = 'file', actualBytes 
 
   if (Number.isFinite(size) && size > 0 && Number.isFinite(actualBytes)) {
     if (actualBytes !== size) {
-      throw readTruncated(`${label}: body is ${actualBytes} bytes but the blob is ${size} — the read did not return the file`);
+      throw readTruncated(`${label}: body is ${actualBytes} bytes but the blob is ${size}, so the read did not return the file`);
     }
   }
 
@@ -937,19 +937,19 @@ This repository was automatically initialized by Redstring UI React. You can now
 
       const where = `${this.user}/${this.repo}`;
       if (response.status === 404) {
-        this.lastUnavailableReason = `404 Not Found for ${where} ${tokenContext}${apiMessage ? ` — ${apiMessage}` : ''} (repo missing OR token lacks access to it; check that token user owns/has access to repo and that 'repo' scope is granted for private repos)`;
+        this.lastUnavailableReason = `404 Not Found for ${where} ${tokenContext}${apiMessage ? `: ${apiMessage}` : ''} (repo missing OR token lacks access to it; check that token user owns/has access to repo and that 'repo' scope is granted for private repos)`;
       } else if (response.status === 401) {
-        this.lastUnavailableReason = `401 Unauthorized for ${where} ${tokenContext}${apiMessage ? ` — ${apiMessage}` : ''} (token rejected — expired, revoked, or wrong type)`;
+        this.lastUnavailableReason = `401 Unauthorized for ${where} ${tokenContext}${apiMessage ? `: ${apiMessage}` : ''} (token rejected: expired, revoked, or wrong type)`;
       } else if (response.status === 403) {
-        this.lastUnavailableReason = `403 Forbidden for ${where} ${tokenContext}${apiMessage ? ` — ${apiMessage}` : ''} (token lacks the required scope/permission, or app install not granted to this repo)`;
+        this.lastUnavailableReason = `403 Forbidden for ${where} ${tokenContext}${apiMessage ? `: ${apiMessage}` : ''} (token lacks the required scope/permission, or app install not granted to this repo)`;
       } else {
-        this.lastUnavailableReason = `${response.status} ${response.statusText} for ${where} ${tokenContext}${apiMessage ? ` — ${apiMessage}` : ''}`;
+        this.lastUnavailableReason = `${response.status} ${response.statusText} for ${where} ${tokenContext}${apiMessage ? `: ${apiMessage}` : ''}`;
       }
       this.lastTokenContext = tokenContext;
       console.warn(`[GitHubSemanticProvider] ${this.lastUnavailableReason}`);
       return false;
     } catch (error) {
-      this.lastUnavailableReason = `fetch threw: ${error?.name || 'Error'} — ${error?.message || String(error)}`;
+      this.lastUnavailableReason = `fetch threw: ${error?.name || 'Error'}: ${error?.message || String(error)}`;
       console.error('[GitHubSemanticProvider] isAvailable error:', error);
       return false;
     }
@@ -1130,7 +1130,7 @@ This repository was automatically initialized by Redstring UI React. You can now
       githubRateLimiter.recordRequest(this.authMethod);
       const probe = await this.probeFile(safePath);
       if (probe.exists === 'unknown') {
-        const err = new Error(`[GitHubSemanticProvider] Cannot determine if ${safePath} exists (status ${probe.status}: ${probe.message}). Refusing to PUT without sha — this would corrupt an existing file if the token simply can't see it.`);
+        const err = new Error(`[GitHubSemanticProvider] Cannot determine if ${safePath} exists (status ${probe.status}: ${probe.message}). Refusing to PUT without sha, since this would corrupt an existing file if the token simply can't see it.`);
         err.code = 'FILE_INFO_UNKNOWN';
         err.status = probe.status;
         throw err;
@@ -1229,7 +1229,7 @@ This repository was automatically initialized by Redstring UI React. You can now
               githubRateLimiter.recordRequest(this.authMethod);
               const freshProbe = await this.probeFile(safePath);
               if (freshProbe.exists === 'unknown') {
-                const probeErr = new Error(`Retry probe ${attempt} could not see ${safePath} (status ${freshProbe.status}: ${freshProbe.message}) — likely auth issue. Bailing.`);
+                const probeErr = new Error(`Retry probe ${attempt} could not see ${safePath} (status ${freshProbe.status}: ${freshProbe.message}). Likely an auth issue. Bailing.`);
                 probeErr.code = 'FILE_INFO_UNKNOWN';
                 probeErr.status = freshProbe.status;
                 throw probeErr;

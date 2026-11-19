@@ -97,7 +97,7 @@ const HelpModal = ({ isVisible, onClose }) => {
 
           <h3 style={{ color: headingColor }}>Game Controller</h3>
           <p>
-            Plug in a controller and start using it — the canvas switches over on its own, and hands
+            Plug in a controller and start using it. The canvas switches over on its own, and hands
             back to the mouse the moment you move it. See the <strong>Controller</strong> topic for the
             full button map.
           </p>
@@ -208,7 +208,7 @@ const HelpModal = ({ isVisible, onClose }) => {
 
           <h3 style={{ color: headingColor }}>Panels &amp; Tabs</h3>
           <p>
-            The d-pad works the interface while the sticks keep flying the canvas — they are different
+            The d-pad works the interface while the sticks keep flying the canvas. They are different
             hands on different surfaces, so neither waits on the other.
           </p>
           <ul style={{ lineHeight: '1.8' }}>

@@ -456,7 +456,7 @@ const UniversesList = ({
                     ? { overflowWrap: 'anywhere' }
                     : { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' })
                 }}>
-                  {workspaceFolder || 'Not linked — files may lose permissions on reload'}
+                  {workspaceFolder || 'Not linked. Files may lose permissions on reload.'}
                 </span>
               </div>
             </div>

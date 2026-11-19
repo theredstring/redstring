@@ -45,13 +45,13 @@ const fileAccess = (fire, { folder, file, loaded = false, errorMessage = null })
 const MODALS = [
   {
     key: 'file-access-load',
-    name: 'File Access — couldn’t load',
+    name: 'File Access: couldn’t load',
     note: 'The browser closed and took back the workspace folder and the file this universe loads from.',
     render: (fire) => fileAccess(fire, { folder: FOLDER, file: FILE, errorMessage: LOAD_ERROR })
   },
   {
     key: 'file-access-second',
-    name: 'File Access — one more click',
+    name: 'File Access: one more click',
     note: 'The folder came back, but the browser wants its own answer for the file.',
     render: (fire) => fileAccess(fire, {
       folder: { ...FOLDER, state: 'granted' },
@@ -61,19 +61,19 @@ const MODALS = [
   },
   {
     key: 'file-access-saving',
-    name: 'File Access — saving paused',
+    name: 'File Access: saving paused',
     note: 'Loaded from GitHub, but its local copy is locked, so nothing is being saved to it.',
     render: (fire) => fileAccess(fire, { folder: null, file: { ...FILE, isSourceOfTruth: false }, loaded: true })
   },
   {
     key: 'file-access-folder',
-    name: 'File Access — folder only',
+    name: 'File Access: folder only',
     note: 'The universe is fine, but the workspace folder new universes go into is locked.',
     render: (fire) => fileAccess(fire, { folder: FOLDER, file: null, loaded: true })
   },
   {
     key: 'file-access-blocked',
-    name: 'File Access — blocked',
+    name: 'File Access: blocked',
     note: 'Someone once told the browser no, so it refuses without asking.',
     render: (fire) => fileAccess(fire, {
       folder: { ...FOLDER, state: 'denied' },

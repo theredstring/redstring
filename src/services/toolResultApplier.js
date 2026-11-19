@@ -395,7 +395,7 @@ export function applyNodeLadders(spec, { graphId = null, dimension = DEFAULT_ABS
   const wireFor = (gid, name, entries, preferredId) => {
     const anchorId = resolveAnchor(gid, name, preferredId);
     if (!anchorId) {
-      warnings.push(`isA skipped for "${name}" — could not resolve it to a prototype.`);
+      warnings.push(`isA skipped for "${name}": could not resolve it to a prototype.`);
       return;
     }
     // Re-read between nodes so a rung created for one node is reused by the next.
@@ -597,7 +597,7 @@ function materializeCompositionLevel(graphId, graphSpec, options, depth, warning
     layer._skip = false;
 
     if (depth >= COMPOSITION_MAX_DEPTH) {
-      warnings.push(`Layer "${layer.name}" exceeds max nesting depth ${COMPOSITION_MAX_DEPTH} — ignored.`);
+      warnings.push(`Layer "${layer.name}" exceeds max nesting depth ${COMPOSITION_MAX_DEPTH}, ignored.`);
       layer._skip = true;
       continue;
     }
@@ -605,7 +605,7 @@ function materializeCompositionLevel(graphId, graphSpec, options, depth, warning
     // Idempotency: a node-group for a same-named prototype already in this
     // graph means the layer is already built (re-run safety) — skip it whole.
     if (groupExistsForPrototypeName(graphId, layer.name)) {
-      warnings.push(`Layer "${layer.name}" already exists as a node-group in this graph — skipped.`);
+      warnings.push(`Layer "${layer.name}" already exists as a node-group in this graph, skipped.`);
       layer._skip = true;
       continue;
     }
@@ -624,7 +624,7 @@ function materializeCompositionLevel(graphId, graphSpec, options, depth, warning
         layer._equation = !!equationOf(state, proto);
         continue;
       }
-      warnings.push(`use: "${layer.use}" — no Thing with that name exists; creating a fresh empty Thing instead.`);
+      warnings.push(`use: "${layer.use}": no Thing with that name exists, so a fresh empty Thing was created instead.`);
     }
 
     // Fresh layer: create the prototype, and a definition graph when there is
@@ -689,7 +689,7 @@ function materializeCompositionLevel(graphId, graphSpec, options, depth, warning
       l._adopted = true;
       st.retargetNodeInstance(graphId, existing.instanceId, l._protoId);
       warnings.push(
-        `Layer "${l.name}": a node with that name was already on the canvas — used it as the layer's `
+        `Layer "${l.name}": a node with that name was already on the canvas, so it was used as the layer's `
         + 'anchor instead of adding a second one.'
       );
       if (!l._equation) continue;
@@ -704,7 +704,7 @@ function materializeCompositionLevel(graphId, graphSpec, options, depth, warning
         continue;
       } catch (e) {
         l._equation = false;
-        warnings.push(`Layer "${l.name}": could not be placed as its formula (${e.message}) — placed as a node.`);
+        warnings.push(`Layer "${l.name}": could not be placed as its formula (${e.message}), so it was placed as a node.`);
         if (existing) continue;
       }
     }
@@ -800,7 +800,7 @@ function openCompositionLayersInPlace(viewGraphId, layers, warnings) {
     const proto = st.nodePrototypes.get(protoId);
     const defGraphId = layer._defGraphId || proto?.definitionGraphIds?.[0] || null;
     if (defGraphId === viewGraphId) {
-      warnings.push(`Layer "${layer.name}": definition graph is the target graph itself — not opened.`);
+      warnings.push(`Layer "${layer.name}": definition graph is the target graph itself, so it was not opened.`);
       continue;
     }
     const defIndex = defGraphId ? Math.max(0, (proto?.definitionGraphIds || []).indexOf(defGraphId)) : 0;
@@ -842,7 +842,7 @@ export function applyCompositionSpec(graphId, spec, options = {}, label = 'compo
 
   const store = useGraphStore.getState();
   if (!graphId || !store.graphs.has(graphId)) {
-    warnings.push(`${label}: target graph not found — layers not applied.`);
+    warnings.push(`${label}: target graph not found, layers not applied.`);
     return warnings;
   }
 

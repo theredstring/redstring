@@ -59,7 +59,7 @@ function Reason({ reason, n, items, theme }) {
               }}
             >
               {item.label || item.id}
-              {item.detail && <span style={{ color: theme.canvas.textSecondary }}>{` — ${item.detail}`}</span>}
+              {item.detail && <span style={{ color: theme.canvas.textSecondary }}>{`: ${item.detail}`}</span>}
             </button>
           ))}
           {items.length > shown && (

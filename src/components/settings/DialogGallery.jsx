@@ -206,7 +206,7 @@ const DIALOGS = [
   },
   {
     key: 'merge-choose',
-    name: 'Merge Universes — choose',
+    name: 'Merge Universes: choose',
     note: 'Picking which universe the combined result lives in.',
     render: (fire, { mergeDest, setMergeDest, foldSameAs, setFoldSameAs }) => (
       <MergeUniverseDialog
@@ -225,7 +225,7 @@ const DIALOGS = [
   },
   {
     key: 'merge-working',
-    name: 'Merge Universes — working',
+    name: 'Merge Universes: working',
     note: 'The spinner phase. Its scrim ignores clicks, so use Close Preview.',
     render: (fire) => (
       <MergeUniverseDialog
@@ -240,7 +240,7 @@ const DIALOGS = [
   },
   {
     key: 'merge-result',
-    name: 'Merge Universes — result',
+    name: 'Merge Universes: result',
     note: 'The report, including the possible-duplicates handoff to the merge modal.',
     render: (fire) => (
       <MergeUniverseDialog
@@ -259,7 +259,7 @@ const DIALOGS = [
   },
   {
     key: 'merge-result-error',
-    name: 'Merge Universes — failed',
+    name: 'Merge Universes: failed',
     note: 'The same phase when the merge threw. Nothing was changed.',
     render: (fire) => (
       <MergeUniverseDialog
@@ -276,7 +276,7 @@ const DIALOGS = [
   },
   {
     key: 'confirm-default',
-    name: 'Confirm — default',
+    name: 'Confirm: default',
     note: 'The ordinary yes/no.',
     render: (fire) => (
       <ConfirmDialog
@@ -293,7 +293,7 @@ const DIALOGS = [
   },
   {
     key: 'confirm-danger',
-    name: 'Confirm — danger, with details',
+    name: 'Confirm: danger, with details',
     note: 'The destructive variant, with the detail block that carries the specifics.',
     render: (fire) => (
       <ConfirmDialog
@@ -324,7 +324,7 @@ const DIALOGS = [
   },
   {
     key: 'confirm-input',
-    name: 'Confirm — with input',
+    name: 'Confirm: with input',
     note: 'The naming variant. Confirm stays disabled until the field has something in it.',
     render: (fire) => (
       <ConfirmDialog

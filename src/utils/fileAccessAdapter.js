@@ -77,7 +77,7 @@ export const pickFile = async (options = {}) => {
     // Native mobile (iOS and Android) has no open-picker in this flow: universes
     // live in the app-managed Universes folder, and external files come in via
     // the <input type="file"> upload path (universeBackend.uploadLocalFile).
-    throw new Error('File picking is not used on mobile — universes are managed automatically. Use import to bring in an external .redstring file.');
+    throw new Error('File picking is not used on mobile. Universes are managed automatically. Use import to bring in an external .redstring file.');
   }
   if (isElectron()) {
     const filePath = await window.electron.fileSystem.pickFile(options);

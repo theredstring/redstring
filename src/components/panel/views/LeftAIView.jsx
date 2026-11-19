@@ -2154,7 +2154,7 @@ const LeftAIView = ({ compact = false,
       // the agent runs in-app — so say what is actually unavailable.
       const isUnreachable = /failed to fetch|networkerror|unreachable/i.test(e?.message || '');
       addMessage('system', isUnreachable
-        ? `No MCP bridge running at ${getBridgeBaseUrl()}.\nThis is optional — the Wizard works without it. It powers the Claude Desktop / MCP integration, and starts automatically in the Electron app. To run it alongside \`npm run dev\`, start it with \`npm run wizard:start\`.`
+        ? `No MCP bridge running at ${getBridgeBaseUrl()}.\nThis is optional. The Wizard works without it. It powers the Claude Desktop / MCP integration, and starts automatically in the Electron app. To run it alongside \`npm run dev\`, start it with \`npm run wizard:start\`.`
         : `Bridge refresh failed: ${e.message}`);
     } finally {
       setIsProcessing(false);
@@ -2247,7 +2247,7 @@ const LeftAIView = ({ compact = false,
 
   const runCompaction = React.useCallback(({ source } = {}) => {
     if (isProcessingRef.current) {
-      addMessage('system', 'Cannot compact while a run is in progress — stop it first.');
+      addMessage('system', 'Cannot compact while a run is in progress. Stop it first.');
       return;
     }
 
@@ -2293,7 +2293,7 @@ const LeftAIView = ({ compact = false,
       }
       // Bound the queue so runaway enqueueing can't pile up unbounded work.
       if (q.length >= MAX_WIZARD_QUEUE) {
-        addMessage('system', `Ask queue is full (${MAX_WIZARD_QUEUE}). This ask was not queued — wait for the current runs to finish.`);
+        addMessage('system', `Ask queue is full (${MAX_WIZARD_QUEUE}). This ask was not queued. Wait for the current runs to finish.`);
         if (typeof overrideInput !== 'string') setCurrentInput('');
         return;
       }
@@ -3202,11 +3202,11 @@ const LeftAIView = ({ compact = false,
                 if (msg.content) msg.content = msg.content.trimEnd();
                 // Show a subtle system note for incomplete plans, not as AI text
                 if (event.reason === 'max_iterations' && event.planTotal > 0 && event.planDone < event.planTotal) {
-                  blocks.push({ type: 'system_note', content: `Reached iteration limit — plan ${event.planDone}/${event.planTotal} complete. Try "continue" to pick up where this left off.` });
+                  blocks.push({ type: 'system_note', content: `Reached iteration limit. Plan ${event.planDone}/${event.planTotal} complete. Try "continue" to pick up where this left off.` });
                 } else if (event.reason === 'max_iterations' && event.goalOpen) {
                   blocks.push({ type: 'system_note', content: 'Reached iteration limit with the goal still open. Try "continue" to keep building toward it, or ask for a verdict.' });
                 } else if (event.reason === 'nudge_limit' && event.goalOpen) {
-                  blocks.push({ type: 'system_note', content: 'The Wizard stopped without judging the goal. It stays open — "continue" resumes it, or ask for a verdict.' });
+                  blocks.push({ type: 'system_note', content: 'The Wizard stopped without judging the goal. It stays open: "continue" resumes it, or ask for a verdict.' });
                 }
                 // The graph-store write and the druid hand-off that used to live
                 // here have moved below the setState calls — see `eventNow`.
@@ -3704,8 +3704,8 @@ const LeftAIView = ({ compact = false,
   const wizardStatusTitle = viewMode === 'druid'
     ? (druidStatus === 'living' ? 'The Druid is awake' : 'The Druid is asleep')
     : wizardReady
-      ? 'Wizard ready — the agent runs in-app'
-      : 'No API key configured — set one to use the Wizard';
+      ? 'Wizard ready. The agent runs in-app.'
+      : 'No API key configured. Set one to use the Wizard.';
 
   // The Druid has no conversations, key or bridge: just copy and clear.
   const headerActionsEl = viewMode === 'druid' ? <DruidHeaderActions /> : (
@@ -3776,7 +3776,7 @@ const LeftAIView = ({ compact = false,
         onClick={refreshBridgeConnection}
         title={isConnected
           ? 'MCP bridge connected'
-          : 'MCP bridge not connected — optional, the Wizard works without it. Click to retry.'}
+          : 'MCP bridge not connected. It is optional; the Wizard works without it. Click to retry.'}
         disabled={isProcessing}
       />
     </div>
@@ -4777,7 +4777,7 @@ const LeftAIView = ({ compact = false,
                 A queue is waiting, not thinking; it should not pulse.
               */}
               <span aria-hidden="true">⋯</span>
-              {queuedSendCount === 1 ? '1 ask queued — starts when the current run finishes' : `${queuedSendCount} asks queued — start when the current run finishes`}
+              {queuedSendCount === 1 ? '1 ask queued, starts when the current run finishes' : `${queuedSendCount} asks queued, start when the current run finishes`}
             </div>
           )}
 

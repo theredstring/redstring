@@ -248,7 +248,7 @@ const MergeUniverseDialog = ({
                 {duplicateCount} possible {duplicateCount === 1 ? 'duplicate' : 'duplicates'} came through.
               </strong>{' '}
               They were left as they are rather than combined on a guess. Sorting them
-              out is a separate step — you can do it now or whenever.
+              out is a separate step. You can do it now or whenever.
             </DialogNote>
           )}
           <div style={{ fontSize: '0.75rem', color: theme.canvas.textSecondary, lineHeight: 1.5 }}>

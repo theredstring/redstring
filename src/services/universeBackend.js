@@ -2511,7 +2511,7 @@ class UniverseBackend {
                 // the user must see — not a silent skip: their edits are not
                 // reaching the file they believe is being saved.
                 umWarn(`[UniverseBackend] Local file disconnected for ${slug}. Save NOT persisted to file.`);
-                return { failed: true, reason: 'local file disconnected — reconnect the file to resume saving' };
+                return { failed: true, reason: 'local file disconnected. Reconnect the file to resume saving.' };
               }
               // Never had a file yet — nothing to write to. Not an error;
               // file creation happens through explicit link/create flows.
@@ -3196,7 +3196,7 @@ class UniverseBackend {
         }
       } catch (error) {
         umWarn('[UniverseBackend] Failed to save current universe before switch:', error);
-        this.notifyStatus('warning', `Could not save "${this.getUniverse(this.activeUniverseSlug)?.name || this.activeUniverseSlug}" before switching — its latest changes may not be persisted.`);
+        this.notifyStatus('warning', `Could not save "${this.getUniverse(this.activeUniverseSlug)?.name || this.activeUniverseSlug}" before switching. Its latest changes may not be persisted.`);
       }
     }
 
@@ -7415,14 +7415,14 @@ class UniverseBackend {
               } else if (!access.isValid) {
                 fileHandleOk = false;
                 if (access.reason === 'permission_denied' || access.needsPermissionPrompt) {
-                  issues.push('File access permission lost — click Reconnect to restore.');
+                  issues.push('File access permission lost. Click Reconnect to restore.');
                   await this.updateLocalFileState(universe, {
                     fileHandleStatus: 'permission_needed',
                     reconnectMessage: 'Grant file access permission to resume saving.',
                     unavailableReason: 'Grant file access permission to resume saving.'
                   });
                 } else if (access.reason === 'file_missing') {
-                  issues.push('Local file moved or deleted — click Reconnect to relink.');
+                  issues.push('Local file moved or deleted. Click Reconnect to relink.');
                   await this.updateLocalFileState(universe, {
                     fileHandleStatus: 'needs_reconnect',
                     hadFileHandle: false,
@@ -8768,7 +8768,7 @@ class UniverseBackend {
       ? storeState.graphs.size
       : Object.keys(storeState?.graphs || {}).length;
     if (importedNodeCount === 0 && importedGraphCount === 0) {
-      throw new Error(`${file.name} contains no nodes or graphs — import aborted to protect the target universe`);
+      throw new Error(`${file.name} contains no nodes or graphs. Import aborted to protect the target universe.`);
     }
 
     // Load the imported data into the target universe

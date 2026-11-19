@@ -6,12 +6,12 @@ import { useTheme } from '../../hooks/useTheme.js';
 // synthetic "user" messages the loop injects to keep the model on track — a hidden second
 // voice in the conversation. Surfacing them makes the loop↔model negotiation visible.
 const KIND_LABELS = {
-  empty_response: 'Loop nudged the model — empty reply',
-  plan_incomplete: 'Loop nudged the model — plan not done yet',
-  first_iteration: 'Loop nudged the model — follow through with tools?',
-  sparse_definition: 'Loop nudged the model — definition graph too thin',
-  plan_complete: 'Loop told the model — plan done, wrap up',
-  plan_locked: 'Loop told the model — stop re-planning, act',
+  empty_response: 'Loop nudged the model: empty reply',
+  plan_incomplete: 'Loop nudged the model: plan not done yet',
+  first_iteration: 'Loop nudged the model: follow through with tools?',
+  sparse_definition: 'Loop nudged the model: definition graph too thin',
+  plan_complete: 'Loop told the model: plan done, wrap up',
+  plan_locked: 'Loop told the model: stop re-planning, act',
   nudge: 'Loop nudged the model',
 };
 

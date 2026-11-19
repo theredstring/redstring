@@ -452,7 +452,7 @@ class SaveCoordinator {
 
     if (!this.hasLoadedFromFile) {
       console.warn(`[SaveCoordinator] Load gate watchdog: "${entry.label}" has not settled in ${Date.now() - entry.startedAt}ms and the universe never loaded — holding the gate shut. Saving stays disabled until the load lands or the page is reloaded.`);
-      this.notifyStatus('warning', 'Still waiting on this universe to load — saving is paused so it cannot overwrite unread data. Reload to retry.', { persistent: true });
+      this.notifyStatus('warning', 'Still waiting on this universe to load. Saving is paused so it cannot overwrite unread data. Reload to retry.', { persistent: true });
       entry.timer = setTimeout(() => this._forceReleaseLoadGate(token), LOAD_GATE_CHECK_MS);
       return;
     }
@@ -1812,7 +1812,7 @@ class SaveCoordinator {
         console.warn('[SaveCoordinator] Refusing to save: data appears catastrophically reduced', {
           baseline,
           current,
-          message: 'If this was intentional, use forceSave() ("Save Now"). Note that a shrink to ZERO cannot be persisted — the destination guards refuse it; leave at least one thing in place.'
+          message: 'If this was intentional, use forceSave() ("Save Now"). Note that a shrink to ZERO cannot be persisted, because the destination guards refuse it. Leave at least one thing in place.'
         });
       }
       return collapsed;
@@ -2026,7 +2026,7 @@ class SaveCoordinator {
     // can retry a second later. `allowDuringLoad` exists for conflict
     // resolution, where writing a deliberately-chosen state is the point.
     if (this.loadInFlight > 0 && !allowDuringLoad) {
-      const message = 'Still loading this universe — save skipped so it cannot overwrite what is being read. Try again in a moment.';
+      const message = 'Still loading this universe. Save skipped so it cannot overwrite what is being read. Try again in a moment.';
       this.notifyStatus('warning', message);
       throw new Error(message);
     }

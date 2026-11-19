@@ -540,7 +540,7 @@ const AISection = () => {
               Provider
               <div className="settings-row-description">
                 {savedProviders.length > 1
-                  ? 'AI service to use — switching keeps each saved key'
+                  ? 'AI service to use. Switching keeps each saved key.'
                   : 'AI service to use'}
               </div>
             </div>
@@ -552,7 +552,7 @@ const AISection = () => {
             >
               {providers.map(p => (
                 <option key={p.id} value={p.id}>
-                  {savedProviders.includes(p.id) ? `${p.name} — key saved` : p.name}
+                  {savedProviders.includes(p.id) ? `${p.name} (key saved)` : p.name}
                 </option>
               ))}
               <option value="local">Local LLM Server</option>
@@ -718,9 +718,9 @@ const AISection = () => {
                       ? `Live from ${getProviderLabel(provider)}, newest first`
                       : modelsNeedKey
                         ? savedProviders.includes(provider)
-                          ? `Your saved ${getProviderLabel(provider)} key is stored — re-enter it above to load current models`
+                          ? `Your saved ${getProviderLabel(provider)} key is stored. Re-enter it above to load current models.`
                           : `Add your ${getProviderLabel(provider)} key above to load current models`
-                        : `Couldn't reach ${getProviderLabel(provider)} — showing a short built-in list`}
+                        : `Couldn't reach ${getProviderLabel(provider)}. Showing a short built-in list.`}
                 </div>
               </div>
               <div className="settings-row-control" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>

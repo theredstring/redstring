@@ -95,7 +95,7 @@ export default function UpdateDiagnosticsCard({ isOpen, anchorBottom = 16, onClo
   const handleDowngrade = async () => {
     if (!confirmingDowngrade) {
       setConfirmingDowngrade(true);
-      setStatusLine('Click again to confirm — this will download the previous release and relaunch.');
+      setStatusLine('Click again to confirm. This will download the previous release and relaunch.');
       return;
     }
     setBusy('downgrade');
