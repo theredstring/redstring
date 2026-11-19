@@ -16,7 +16,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "504EC3031FED79650016851F"
-               BuildableName = "Redstring: Connect the Dots.app"
+               BuildableName = "App.app"
                BlueprintName = "App"
                ReferencedContainer = "container:App.xcodeproj">
             </BuildableReference>
@@ -46,7 +46,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "504EC3031FED79650016851F"
-            BuildableName = "Redstring: Connect the Dots.app"
+            BuildableName = "App.app"
             BlueprintName = "App"
             ReferencedContainer = "container:App.xcodeproj">
          </BuildableReference>
@@ -63,7 +63,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "504EC3031FED79650016851F"
-            BuildableName = "Redstring: Connect the Dots.app"
+            BuildableName = "App.app"
             BlueprintName = "App"
             ReferencedContainer = "container:App.xcodeproj">
          </BuildableReference>

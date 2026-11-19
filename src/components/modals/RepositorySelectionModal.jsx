@@ -20,6 +20,8 @@ import PanelIconButton from '../shared/PanelIconButton.jsx';
 import { DialogButton, DialogCheckbox, DialogInput } from '../shared/Dialog.jsx';
 import { useTheme } from '../../hooks/useTheme.js';
 import { persistentAuth } from '../../services/persistentAuth.js';
+import { useGitHubConnection } from '../../hooks/useGitHubConnection.js';
+import GitHubConnectPanel from '../shared/GitHubConnectPanel.jsx';
 import { listUserRepos, createRepository } from '../../services/githubRepoService.js';
 
 import { universeManagerService } from '../../services/universeManagerService.js';
@@ -55,6 +57,10 @@ const RepositorySelectionModal = ({
   const [sortBy, setSortBy] = useState('updated');
   const [sortOrder, setSortOrder] = useState('desc');
   const [authStatus, setAuthStatus] = useState(persistentAuth.getAuthStatus());
+  // Signed out, the box connects GitHub itself (it is reached straight from
+  // onboarding's Open an Existing Universe); the token-stored listeners below
+  // then bring up the repository list in place.
+  const github = useGitHubConnection({ active: isOpen && !authStatus.hasOAuthTokens });
   const [expandedRepos, setExpandedRepos] = useState(new Set());
   const [discoveredUniverses, setDiscoveredUniverses] = useState({});
   // Bumped whenever the shared discovery cache changes, so already-scanned
@@ -304,22 +310,16 @@ const RepositorySelectionModal = ({
         <div style={{
           flex: 1,
           display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
           flexDirection: 'column',
-          gap: '16px',
+          gap: '12px',
           color: theme.canvas.textSecondary,
-          padding: '40px'
+          padding: '16px',
+          overflowY: 'auto'
         }}>
-          <Github size={48} style={{ opacity: 0.3 }} />
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: '8px', color: theme.canvas.textPrimary }}>
-              GitHub Authentication Required
-            </div>
-            <div style={{ fontSize: '0.9rem' }}>
-              Please sign in with GitHub to browse your repositories
-            </div>
+          <div style={{ fontSize: '0.9rem', color: theme.canvas.textPrimary }}>
+            Connect GitHub to browse your repositories.
           </div>
+          <GitHubConnectPanel connection={github} compact />
         </div>
       </Modal>
     );
