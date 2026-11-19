@@ -227,5 +227,58 @@ describe('PersistentAuth (secure storage)', () => {
       expect(persistentAuth.lastAppDiscoveryFailure?.reason).toBe('oauth_invalid');
       expect(persistentAuth.hasValidTokens()).toBe(false);
     });
+
+    // One timed-out background call puts the oauth-server in a five-minute
+    // cooldown. Detect install is the user asking right now, so every call
+    // in the discovery chain must get through, or each press reads as
+    // "not installed" until the cooldown lapses.
+    const appCalls = () => mockOAuthFetch.mock.calls.filter(([url]) => url.includes('/api/github/app/'));
+    const serveInstall = () => {
+      const base = mockOAuthFetch.getMockImplementation();
+      mockOAuthFetch.mockImplementation(async (url, options) => {
+        if (url.includes('/api/github/app/installations')) {
+          return createFetchResponse({ json: async () => ([{ id: 42, account: { login: 'someone' } }]) });
+        }
+        if (url.includes('/api/github/app/installation-token')) {
+          return createFetchResponse({ json: async () => ({ token: 'ghs_fresh' }) });
+        }
+        if (url.includes('/api/github/app/installation/42')) {
+          return createFetchResponse({ json: async () => ({ repositories: [], account: { login: 'someone' } }) });
+        }
+        return base(url, options);
+      });
+    };
+
+    it('user-initiated App discovery bypasses the oauth-server cooldown on every call', async () => {
+      seedToken();
+      serveInstall();
+      mockOAuthFetch.mockClear();
+
+      await persistentAuth.forceAppDiscovery();
+
+      const calls = appCalls();
+      expect(calls.map(([url]) => url)).toEqual(expect.arrayContaining([
+        '/api/github/app/installations',
+        '/api/github/app/installation-token',
+        '/api/github/app/installation/42'
+      ]));
+      for (const [url, options] of calls) {
+        expect(options?.bypassCooldown, url).toBe(true);
+      }
+    });
+
+    it('background App auto-connect still respects the cooldown', async () => {
+      seedToken();
+      serveInstall();
+      mockOAuthFetch.mockClear();
+
+      await persistentAuth.attemptAppAutoConnect();
+
+      const calls = appCalls();
+      expect(calls.length).toBeGreaterThan(0);
+      for (const [url, options] of calls) {
+        expect(options?.bypassCooldown, url).toBeFalsy();
+      }
+    });
   });
 });
