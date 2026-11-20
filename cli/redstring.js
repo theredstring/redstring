@@ -619,7 +619,7 @@ async function main() {
         if (!src) die(`source node not found in graph: ${srcName}`);
         if (!dst) die(`target node not found in graph: ${dstName}`);
         const edge = { id: newId('edge'), sourceId: src.id, destinationId: dst.id };
-        if (flags.type) edge.name = flags.type;
+        if (flags.type) edge.connectionName = flags.type;
         await b.runActions([{ action: 'applyMutations', params: [[{ type: 'addEdge', graphId: gid, edgeData: edge }]] }]);
         await b.save();
         return out({ created: true, id: edge.id, from: src.name, to: dst.name });
