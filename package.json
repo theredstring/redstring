@@ -171,7 +171,7 @@
     "react-dnd-multi-backend": "^9.0.0",
     "react-dnd-touch-backend": "^16.0.1",
     "react-dom": "^18.3.1",
-    "react-virtuoso": "^4.18.23",
+    "react-virtuoso": "^4.18.24",
     "sparql-http-client": "^3.1.0",
     "use-debounce": "^10.1.1",
     "uuid": "^11.1.0",
@@ -184,14 +184,14 @@
     "@babel/traverse": "^7.29.14",
     "@capacitor/assets": "^3.0.5",
     "@capacitor/cli": "^7.6.10",
-    "@cloudflare/workers-types": "^5.20261118.1",
+    "@cloudflare/workers-types": "^5.20261120.1",
     "@electron/fuses": "^1.8.0",
     "@eslint/js": "^9.39.5",
     "@playwright/test": "^1.65.1",
     "@redstring/apple-model": "file:native/afm-bridge",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.3",
-    "@testing-library/user-event": "^14.6.12",
+    "@testing-library/user-event": "^14.6.13",
     "@types/react": "^18.3.31",
     "@types/react-dom": "^18.3.7",
     "@vitejs/plugin-react": "^4.3.1",
@@ -202,7 +202,7 @@
     "eslint": "^9.39.5",
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^5.2.0",
-    "eslint-plugin-react-refresh": "^0.4.26",
+    "eslint-plugin-react-refresh": "^0.5.8",
     "globals": "^15.15.0",
     "ignore": "^5.3.2",
     "jest": "^29.7.0",
@@ -213,6 +213,6 @@
     "vite": "^5.4.21",
     "vitest": "^3.1.1",
     "wait-on": "^9.5.1",
-    "wrangler": "^4.125.0"
+    "wrangler": "^4.166.0"
   }
 }
