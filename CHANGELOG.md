@@ -4,6 +4,19 @@ All notable changes to Redstring are documented in this file. Logs should be bri
 
 Versions before 0.1.0-alpha were never released. They are numbered after the fact to mark milestones in development.
 
+## [1.0.1] - 2026-11-25
+
+### Added
+- **Downloads in Settings › About**: the desktop builds, the App Store and Google Play. **Get Redstring** in the Help menu opens the download page. Not shown in the phone apps.
+
+### Fixed
+- **The iPhone, iPad and Android apps always opened on the Universes tab**, even with a universe to reopen, and showed an empty canvas before it arrived.
+- **Selecting a Thing or a connection panned slowly on Android.** The camera's move now takes its intended time on slower devices.
+- **Add in semantic search threw the view off screen** on a phone.
+- **A Thing with an image shifted while it resized.** The image now resizes with its box.
+- **Connect GitHub and the repository picker were cut off by the Universes panel**, worst on a phone held sideways, and Connect GitHub didn't show at all on desktop.
+- **The last-sync time ran off the Status & Sync card** in a narrow panel.
+
 ## [1.0.0] - 2026-11-19
 
 Redstring 1.0.

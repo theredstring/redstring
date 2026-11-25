@@ -20,6 +20,7 @@ import { resolveEdgeLabelFontSize } from '../../../services/layoutGeometry.js';
 import { labelBoundsFor, estimateTextWidth } from '../../../utils/canvas/edgeLabelPlacement.js';
 import { edgePieDrawnAnchor } from '../edges/edgeGeometry.js';
 import { CAROUSEL_SLOT_FRACTION } from '../../../utils/pieMenuLayout.js';
+import { perfMark } from '../../../utils/perfSession.js';
 
 // How much canvas an open overlay panel has to leave before framing aims at the
 // gap is overlayGapWorthFraming (viewportMath), shared with semanticPlacement's
@@ -714,6 +715,7 @@ export function frameCarouselOnOpen(ctx) {
 /** Ease the camera to a pan and zoom over `durationMs` (the framing animations). */
 export function animateCanvasViewWith(ctx, targetPan, targetZoom, options = 320) {
   const { carouselViewAnimRef, panOffsetRef, zoomLevelRef, isAnimatingZoomRef, setPanAndZoom } = ctx;
+  perfMark('camera-frame');
   // A number is a duration (the old signature); `{ withMorph: true }` paces the move
   // with a node or box morph (MORPH_CAMERA_MS).
   const { durationMs = options?.withMorph ? MORPH_CAMERA_MS : 320, withMorph = false } =
