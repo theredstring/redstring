@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ArrowLeft } from 'lucide-react';
 import CanvasModal from '../CanvasModal.jsx';
 import PanelIconButton from '../shared/PanelIconButton.jsx';
@@ -21,7 +22,13 @@ const GitHubConnectModal = ({ isVisible, connection, onBack, onContinue = null, 
   const compact = viewportWidth <= 500;
   const width = compact ? Math.min(Math.max(viewportWidth - 24, 320), 540) : 600;
 
-  return (
+  // Portalled to #root: the Repository box opens this from the Universes panel,
+  // whose slide transform makes it the containing block for `position: fixed`,
+  // so the box was positioned against, and clipped by, the panel (Modal.jsx
+  // does the same for the same reason).
+  const portalTarget = (typeof document !== 'undefined' && (document.getElementById('root') || document.body)) || null;
+
+  const box = (
     <CanvasModal
       isVisible={isVisible}
       onClose={onBack}
@@ -49,6 +56,8 @@ const GitHubConnectModal = ({ isVisible, connection, onBack, onContinue = null, 
       </div>
     </CanvasModal>
   );
+
+  return portalTarget ? createPortal(box, portalTarget) : box;
 };
 
 export default GitHubConnectModal;

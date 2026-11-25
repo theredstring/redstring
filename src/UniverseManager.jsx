@@ -4291,12 +4291,17 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
                   backgroundColor: theme.canvas.bg,
                   padding: '12px 16px',
                   display: 'flex',
+                  // Wraps: the save time is nowrap and can't shrink, so in a
+                  // narrow panel it used to run straight out of the card. Now
+                  // it drops to its own line instead.
+                  flexWrap: 'wrap',
                   alignItems: 'center',
                   justifyContent: 'space-between',
-                  gap: 12
+                  columnGap: 12,
+                  rowGap: 6
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: '1 1 160px', minWidth: 0 }}>
                   {displayState === 'saving' && (
                     <RefreshCw size={16} style={{ animation: 'spin 1s linear infinite', color: displayTone, flexShrink: 0 }} />
                   )}
@@ -4309,7 +4314,7 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
                   {displayState === 'idle' && (
                     <CheckCircle size={16} style={{ color: displayTone, flexShrink: 0 }} />
                   )}
-                  <div style={{ flex: 1 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: '0.9rem', fontWeight: 600, color: displayTone || theme.canvas.textPrimary }}>
                       {displayLabel}
                     </div>
@@ -4341,7 +4346,12 @@ const UniverseManager = ({ variant = 'panel', onRequestClose }) => {
                     fontSize: '0.7rem',
                     color: '#666',
                     whiteSpace: 'nowrap',
-                    flexShrink: 0
+                    // Right-aligned whether it shares the line or takes its
+                    // own; clipped rather than spilling in the narrowest panel.
+                    marginLeft: 'auto',
+                    maxWidth: '100%',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis'
                   }}>
                     {formatWhen(lastTime)}
                   </div>

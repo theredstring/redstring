@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { useTheme } from '../../hooks/useTheme.js';
 import { X } from 'lucide-react';
 import PanelIconButton from './PanelIconButton.jsx';
@@ -57,7 +58,15 @@ const Modal = ({
     onClose();
   };
 
-  return (
+  // Portalled to #root. Nearly every Modal is opened from the Universes panel,
+  // and the panel's slide transform makes it the containing block for anything
+  // `position: fixed` inside it: the scrim and box were laid out in, and
+  // clipped by, the panel instead of the window (and capped under its z-index).
+  // #root, not <body>, so the scrim keeps #root's safe-area containing block,
+  // as AppDialogHost does.
+  const portalTarget = (typeof document !== 'undefined' && (document.getElementById('root') || document.body)) || null;
+
+  const modal = (
     <div
       // The class the game controller looks for. Dialog.jsx's scrim carries it
       // and that is how the pad finds every dialog in the app; a Modal is the
@@ -158,6 +167,8 @@ const Modal = ({
       </div>
     </div>
   );
+
+  return portalTarget ? createPortal(modal, portalTarget) : modal;
 };
 
 export default Modal;
