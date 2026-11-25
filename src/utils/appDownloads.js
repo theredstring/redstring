@@ -43,3 +43,5 @@ export const getAppDownloadLinks = () => {
 
 /** The website's download section, which lists every build and both stores. */
 export const ALL_DOWNLOADS_URL = DESKTOP_DOWNLOAD_URL;
+
+export { DESKTOP_DOWNLOAD_URL };

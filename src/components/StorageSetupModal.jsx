@@ -6,7 +6,8 @@ import { isElectron, hasFileSystemAccess, pickFile } from '../utils/fileAccessAd
 import { isCapacitor, usesPathHandles } from '../utils/capacitorAdapter.js';
 import {
   FolderOpen, Folder, ArrowRight, ArrowLeft, Github, Lock, Globe, FileText, Link,
-  Loader2, CheckCircle, AlertCircle, Circle, RefreshCw, Save, X, Star, Upload, Key, Plus
+  Loader2, CheckCircle, AlertCircle, Circle, RefreshCw, Save, X, Star, Upload, Key, Plus,
+  Monitor, Smartphone, Download
 } from 'lucide-react';
 import { useTheme } from '../hooks/useTheme.js';
 import { useGitHubConnection } from '../hooks/useGitHubConnection.js';
@@ -24,6 +25,8 @@ import universeManagerService from '../services/universeManagerService.js';
 import { openUniverseFile } from '../services/openUniverseFile.js';
 import { saveLinkedAsLocalFile, publishLinkedToRepo } from '../services/externalLinkDestinations.js';
 import ExternalLinkLoadModal from './modals/ExternalLinkLoadModal.jsx';
+import { canOfferAppDownloads, DESKTOP_DOWNLOAD_URL, APP_STORE_URL, GOOGLE_PLAY_URL } from '../utils/appDownloads.js';
+import { openExternalUrl } from '../utils/safeUrl.js';
 import {
   fillGitSlot, addLocalFileSlot, resolveLocalFileHandle, openRepoUniverse,
   GIT_ONBOARDING_TASKS, OPEN_REPO_TASKS
@@ -118,8 +121,15 @@ const StorageSetupModal = ({
     height: typeof window !== 'undefined' ? window.innerHeight : 900
   }));
 
-  // Step: 'slots' (hub) | 'git-connect' | 'git-repo' | 'git-finishing'
-  const [step, setStep] = useState(readWizardResumeStep);
+  // In a browser, onboarding starts on Get the App: the desktop and phone
+  // apps, or Continue on Web to the hub. Never in the apps themselves, which
+  // are already installed. The platform doesn't change while the app runs.
+  const [offerGetApp] = useState(() => !isElectron() && canOfferAppDownloads());
+  // Step: 'get-app' (browser only) | 'slots' (hub) | 'git-connect' | 'git-repo' | 'git-finishing'
+  const [step, setStep] = useState(() => {
+    const resume = readWizardResumeStep();
+    return resume === 'slots' && offerGetApp ? 'get-app' : resume;
+  });
   const [gitIntent, setGitIntent] = useState(readResumeIntent);
   const afterConnectStep = gitIntent === 'open' ? 'git-open' : 'git-repo';
   const [universeName, setUniverseName] = useState(readResumeUniverseName);
@@ -874,9 +884,73 @@ const StorageSetupModal = ({
     />
   );
 
+  // Browser only: the first page. The same header and cards as the hub, for
+  // the apps, then Continue on Web to the hub.
+  const getAppButtonStyle = { ...hubButtonStyle, padding: '9px 14px' };
+  const getAppButton = (icon, label, url) => (
+    <PanelIconButton
+      icon={icon}
+      size={16}
+      labelFontSize={14}
+      label={label}
+      variant="outline"
+      onClick={() => openExternalUrl(url)}
+      style={getAppButtonStyle}
+    />
+  );
+  const renderGetAppStep = () => (
+    <>
+      <div style={{ textAlign: 'center', marginBottom: isCompactLayout ? '18px' : '22px', flexShrink: 0 }}>
+        <h1 style={{
+          margin: '0 0 6px 0',
+          color: theme.canvas.brandText,
+          fontSize: isCompactLayout ? '1.25rem' : '1.45rem',
+          fontWeight: '600',
+          fontFamily: "'EmOne', sans-serif"
+        }}>
+          Welcome to Redstring
+        </h1>
+        <h2 style={{
+          margin: 0,
+          color: theme.canvas.textPrimary,
+          fontSize: isCompactLayout ? '0.85rem' : '1.05rem',
+          fontWeight: 'bold',
+          fontFamily: "'EmOne', sans-serif"
+        }}>
+          Get the App
+        </h2>
+      </div>
+
+      <div style={{ flexShrink: 0 }}>
+        {hubCard({
+          icon: <Monitor size={22} />,
+          title: 'Desktop',
+          description: 'Mac, Windows and Linux',
+          children: hubActions(getAppButton(Download, 'Download', DESKTOP_DOWNLOAD_URL))
+        })}
+        {hubCard({
+          icon: <Smartphone size={22} />,
+          title: 'Mobile',
+          description: 'iPhone, iPad and Android',
+          children: hubActions(
+            <>
+              {getAppButton(Download, 'App Store', APP_STORE_URL)}
+              {getAppButton(Download, 'Google Play', GOOGLE_PLAY_URL)}
+            </>
+          )
+        })}
+      </div>
+
+      <div style={{ marginTop: isCompactLayout ? '14px' : '18px', flexShrink: 0 }}>
+        {primaryCta({ label: 'Continue on Web', onClick: () => setStep('slots'), large: true })}
+      </div>
+    </>
+  );
+
   const renderSlotsStep = () => (
     <>
       <style>{'@keyframes rs-onboarding-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }'}</style>
+      {offerGetApp && !anySlotFilled && backButton(() => setStep('get-app'))}
       {/* Header */}
       <div style={{ textAlign: 'center', marginBottom: isCompactLayout ? '18px' : '22px', flexShrink: 0 }}>
         <h1 style={{
@@ -1453,6 +1527,7 @@ const StorageSetupModal = ({
       case 'git-open': return renderGitOpenStep();
       case 'git-finishing': return renderGitFinishingStep();
       case 'link': return renderLinkStep();
+      case 'get-app': return renderGetAppStep();
       case 'slots':
       default:
         return renderSlotsStep();

@@ -8,6 +8,7 @@ Versions before 0.1.0-alpha were never released. They are numbered after the fac
 
 ### Added
 - **Downloads in Settings › About**: the desktop builds, the App Store and Google Play. **Get Redstring** in the Help menu opens the download page. Not shown in the phone apps.
+- **Onboarding in the browser starts on Get the App**: the desktop and phone apps, or Continue on Web to set up a universe.
 
 ### Fixed
 - **The iPhone, iPad and Android apps always opened on the Universes tab**, even with a universe to reopen, and showed an empty canvas before it arrived.
