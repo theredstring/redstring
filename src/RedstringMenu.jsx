@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import MaroonSlider from './components/MaroonSlider.jsx';
-import { ChevronRight, Copy, FileText, FolderOpen, Save, Clock, Globe, BookOpen, Home, Activity, RefreshCw, Undo2, Redo2, Settings, GitMerge, Move, Moon, Maximize, ZoomIn, Tag, Grid3x3, Keyboard, Type, Minus, CornerDownRight, Spline, Circle, MonitorDown, Link as LinkIcon, Library } from 'lucide-react';
+import { ChevronRight, Copy, FileText, FolderOpen, Save, Clock, Globe, BookOpen, Home, Activity, RefreshCw, Undo2, Redo2, Settings, GitMerge, Move, Moon, Maximize, ZoomIn, Tag, Grid3x3, Keyboard, Type, Minus, CornerDownRight, Spline, Circle, MonitorDown, Download, Link as LinkIcon, Library } from 'lucide-react';
 import './RedstringMenu.css';
 import { canOfferDesktopDownload, openDesktopDownload } from './utils/desktopDownload.js';
+import { canOfferAppDownloads, ALL_DOWNLOADS_URL } from './utils/appDownloads.js';
+import { openExternalUrl } from './utils/safeUrl.js';
 import * as fileStorage from './store/fileStorage.js';
 import useHistoryStore from './store/historyStore.js';
 import { performUndo, performRedo } from './store/historyActions.js';
@@ -86,6 +88,7 @@ const RedstringMenu = ({
   const nestedCloseTimeoutRef = useRef(null);
   // Same gate the canvas pill uses: a plain desktop browser only.
   const showDownload = useMemo(() => canOfferDesktopDownload(), []);
+  const showAppDownloads = useMemo(() => canOfferAppDownloads(), []);
   // Debug used to be a top-level menu here. It is a Settings page now — one
   // surface for the switches, and one that works on a phone.
   const [linkCopied, setLinkCopied] = useState(false);
@@ -1117,6 +1120,24 @@ const RedstringMenu = ({
                           <BookOpen size={16} style={{ marginRight: '8px', minWidth: '16px', flexShrink: 0 }} />
                           Redstring Guide
                         </div>
+                        {showAppDownloads && (
+                          <div
+                            className="submenu-item"
+                            tabIndex={0}
+                            role="button"
+                            onMouseEnter={handleRegularSubmenuItemHover}
+                            onFocus={handleRegularSubmenuItemHover}
+                            onClick={() => {
+                              // Every build and both stores, on the website.
+                              openExternalUrl(ALL_DOWNLOADS_URL);
+                              onHoverView?.(false);
+                            }}
+                            style={{ cursor: 'pointer' }}
+                          >
+                            <Download size={16} style={{ marginRight: '8px', minWidth: '16px', flexShrink: 0 }} />
+                            Get Redstring
+                          </div>
+                        )}
                         <div
                           className="submenu-item"
                           tabIndex={0}

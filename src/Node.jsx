@@ -99,9 +99,17 @@ const Node = ({
   // Tune the resize speed here.
   const SIZE_TRANSITION = '0.16s ease';
 
-  // Resized, it grows around its middle: its corner moves with the box, on the same curve.
+  // Resized, it grows around its middle: its corner moves with the box, on the same curve,
+  // and so does its image slot, which has no size transition of its own (useCentredResize).
   const groupRef = useRef(null);
-  useCentredResize(groupRef, node.x ?? 0, node.y ?? 0, node?.sizeMul ?? 1.0, Boolean(isDragging), SIZE_TRANSITION);
+  const imageSlotRef = useRef(null);
+  useCentredResize(groupRef, node.x ?? 0, node.y ?? 0, node?.sizeMul ?? 1.0, Boolean(isDragging), SIZE_TRANSITION, {
+    ref: imageSlotRef,
+    x: (node.x ?? 0) + effPadding,
+    y: (node.y ?? 0) + (restingTextAreaHeight ?? 0),
+    width: imageWidth,
+    height: imageHeight,
+  });
 
   // The preview card opens out of the node and closes back into it. While it is
   // open or closing, `showPreview` keeps its contents drawn; `morphing` is the
@@ -682,115 +690,114 @@ const Node = ({
         </div>
       </foreignObject>
 
-      {/* Image Container (renders if thumbnail exists) */}
-      {/* FIX: Remove the wrapping group and apply clipPath directly to image */}
-      {/* <g 
-        transform={`translate(${nodeX + NODE_PADDING -1}, ${contentAreaY - 1})`} 
-        clipPath={`url(#${clipPathId})`}
-      > */}
-      {hasThumbnail && !showPreview && (
-        // Native SVG <image> rather than a <foreignObject><img>. A foreignObject spins up a
-        // full HTML layout context inside the SVG (heavy, esp. on WebKit); when a node is
-        // lifted it remounts into a separate "dragging node" render slot, and re-laying-out
-        // that subtree on the same frames starves the PieMenu's CSS shrink — the exit
-        // animation visibly stutters for image nodes. A native <image> is a cheap leaf
-        // element, so the remount is nearly free. clipPath gives the rounded corners and
-        // preserveAspectRatio="xMidYMid slice" reproduces objectFit: cover.
-        <image
-          x={nodeX + effPadding}
-          y={contentAreaY}
-          width={imageWidth}
-          height={imageHeight}
-          href={nodeThumbnailSrc}
-          preserveAspectRatio="xMidYMid slice"
-          clipPath={`url(#${clipPathId})`}
-          style={{ userSelect: 'none', WebkitUserDrag: 'none', pointerEvents: 'none' }}
-        />
-      )}
-
-      {/* Loading shimmer — fills the reserved image slot while a user upload is
-          read/decoded. A neutral base with a translucent highlight band that
-          sweeps upward (SMIL <animate>, so it runs even inside the lifted-node
-          render slot without React re-renders). */}
-      {isImageLoading && !showPreview && imageWidth > 0 && imageHeight > 0 && (
-        <g clipPath={`url(#${clipPathId})`} style={{ pointerEvents: 'none' }}>
-          <defs>
-            <linearGradient id={shimmerGradId} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#ffffff" stopOpacity="0" />
-              <stop offset="50%" stopColor="#ffffff" stopOpacity="0.5" />
-              <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
-            </linearGradient>
-          </defs>
-          <rect
-            x={nodeX + effPadding}
-            y={contentAreaY}
-            width={imageWidth}
-            height={imageHeight}
-            fill="#cfcfcf"
-          />
-          <rect
-            x={nodeX + effPadding}
-            width={imageWidth}
-            height={Math.max(20, imageHeight * 0.5)}
-            fill={`url(#${shimmerGradId})`}
-          >
-            <animate
-              attributeName="y"
-              from={contentAreaY + imageHeight}
-              to={contentAreaY - Math.max(20, imageHeight * 0.5)}
-              dur="1.2s"
-              repeatCount="indefinite"
-            />
-          </rect>
-        </g>
-      )}
-
-      {/* Unreachable image — the slot the layout reserved, filled with a quiet
-          statement that something is meant to be here. Deliberately the same
-          neutral as the loading shimmer and NOT an error color: an image that
-          didn't load is a condition, not a fault, and colouring it red would
-          both misattribute blame and break the panel's maroon-only palette. */}
-      {isImageMissing && !showPreview && imageWidth > 0 && imageHeight > 0 && (() => {
-        // Glyph scales with the slot but is clamped so it stays legible on a
-        // small node and doesn't dominate a large one.
-        const g = Math.max(12, Math.min(44, Math.min(imageWidth, imageHeight) * 0.3));
-        const cx = nodeX + effPadding + imageWidth / 2;
-        const cy = contentAreaY + imageHeight / 2;
-        return (
-          <g clipPath={`url(#${clipPathId})`} style={{ pointerEvents: 'none' }}>
-            <rect
+      {/* Image slot: the image, its loading shimmer or its missing mark. One group so a
+          resize can carry the slot from its old rect to its new one (useCentredResize). */}
+      {!showPreview && (hasThumbnail || isImageLoading || isImageMissing) && (
+        <g ref={imageSlotRef} style={{ transformOrigin: '0 0', transformBox: 'view-box' }}>
+          {hasThumbnail && (
+            // Native SVG <image> rather than a <foreignObject><img>. A foreignObject spins up a
+            // full HTML layout context inside the SVG (heavy, esp. on WebKit); when a node is
+            // lifted it remounts into a separate "dragging node" render slot, and re-laying-out
+            // that subtree on the same frames starves the PieMenu's CSS shrink — the exit
+            // animation visibly stutters for image nodes. A native <image> is a cheap leaf
+            // element, so the remount is nearly free. clipPath gives the rounded corners and
+            // preserveAspectRatio="xMidYMid slice" reproduces objectFit: cover.
+            <image
               x={nodeX + effPadding}
               y={contentAreaY}
               width={imageWidth}
               height={imageHeight}
-              fill="#cfcfcf"
+              href={nodeThumbnailSrc}
+              preserveAspectRatio="xMidYMid slice"
+              clipPath={`url(#${clipPathId})`}
+              style={{ userSelect: 'none', WebkitUserDrag: 'none', pointerEvents: 'none' }}
             />
-            {/* Frame + horizon + sun: the conventional "image" mark, drawn as
-                strokes so it reads at any size without a raster asset. */}
-            <g
-              stroke="#9a9a9a"
-              strokeWidth={Math.max(1.25, g * 0.075)}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              fill="none"
-            >
+          )}
+
+          {/* Loading shimmer — fills the reserved image slot while a user upload is
+              read/decoded. A neutral base with a translucent highlight band that
+              sweeps upward (SMIL <animate>, so it runs even inside the lifted-node
+              render slot without React re-renders). */}
+          {isImageLoading && imageWidth > 0 && imageHeight > 0 && (
+            <g clipPath={`url(#${clipPathId})`} style={{ pointerEvents: 'none' }}>
+              <defs>
+                <linearGradient id={shimmerGradId} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#ffffff" stopOpacity="0" />
+                  <stop offset="50%" stopColor="#ffffff" stopOpacity="0.5" />
+                  <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
+                </linearGradient>
+              </defs>
               <rect
-                x={cx - g / 2}
-                y={cy - g / 2}
-                width={g}
-                height={g}
-                rx={g * 0.14}
+                x={nodeX + effPadding}
+                y={contentAreaY}
+                width={imageWidth}
+                height={imageHeight}
+                fill="#cfcfcf"
               />
-              <path d={`M ${cx - g * 0.36} ${cy + g * 0.22} L ${cx - g * 0.08} ${cy - g * 0.1} L ${cx + g * 0.14} ${cy + g * 0.12} L ${cx + g * 0.26} ${cy + g * 0.02} L ${cx + g * 0.36} ${cy + g * 0.22} Z`} />
-              <circle cx={cx + g * 0.16} cy={cy - g * 0.2} r={g * 0.075} />
-              {/* Slash: distinguishes "absent" from "still arriving", so this is
-                  never mistaken for a slow load. */}
-              <path d={`M ${cx - g * 0.56} ${cy + g * 0.56} L ${cx + g * 0.56} ${cy - g * 0.56}`} />
+              <rect
+                x={nodeX + effPadding}
+                width={imageWidth}
+                height={Math.max(20, imageHeight * 0.5)}
+                fill={`url(#${shimmerGradId})`}
+              >
+                <animate
+                  attributeName="y"
+                  from={contentAreaY + imageHeight}
+                  to={contentAreaY - Math.max(20, imageHeight * 0.5)}
+                  dur="1.2s"
+                  repeatCount="indefinite"
+                />
+              </rect>
             </g>
-          </g>
-        );
-      })()}
-      {/* </g> */}
+          )}
+
+          {/* Unreachable image — the slot the layout reserved, filled with a quiet
+              statement that something is meant to be here. Deliberately the same
+              neutral as the loading shimmer and NOT an error color: an image that
+              didn't load is a condition, not a fault, and colouring it red would
+              both misattribute blame and break the panel's maroon-only palette. */}
+          {isImageMissing && imageWidth > 0 && imageHeight > 0 && (() => {
+            // Glyph scales with the slot but is clamped so it stays legible on a
+            // small node and doesn't dominate a large one.
+            const g = Math.max(12, Math.min(44, Math.min(imageWidth, imageHeight) * 0.3));
+            const cx = nodeX + effPadding + imageWidth / 2;
+            const cy = contentAreaY + imageHeight / 2;
+            return (
+              <g clipPath={`url(#${clipPathId})`} style={{ pointerEvents: 'none' }}>
+                <rect
+                  x={nodeX + effPadding}
+                  y={contentAreaY}
+                  width={imageWidth}
+                  height={imageHeight}
+                  fill="#cfcfcf"
+                />
+                {/* Frame + horizon + sun: the conventional "image" mark, drawn as
+                    strokes so it reads at any size without a raster asset. */}
+                <g
+                  stroke="#9a9a9a"
+                  strokeWidth={Math.max(1.25, g * 0.075)}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  fill="none"
+                >
+                  <rect
+                    x={cx - g / 2}
+                    y={cy - g / 2}
+                    width={g}
+                    height={g}
+                    rx={g * 0.14}
+                  />
+                  <path d={`M ${cx - g * 0.36} ${cy + g * 0.22} L ${cx - g * 0.08} ${cy - g * 0.1} L ${cx + g * 0.14} ${cy + g * 0.12} L ${cx + g * 0.26} ${cy + g * 0.02} L ${cx + g * 0.36} ${cy + g * 0.22} Z`} />
+                  <circle cx={cx + g * 0.16} cy={cy - g * 0.2} r={g * 0.075} />
+                  {/* Slash: distinguishes "absent" from "still arriving", so this is
+                      never mistaken for a slow load. */}
+                  <path d={`M ${cx - g * 0.56} ${cy + g * 0.56} L ${cx + g * 0.56} ${cy - g * 0.56}`} />
+                </g>
+              </g>
+            );
+          })()}
+        </g>
+      )}
 
       {/* --- Network Preview Container --- */}
       {/* NOTE: no opacity/transition on this <g>. Group-opacity forces iOS WebKit to

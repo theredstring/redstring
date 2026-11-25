@@ -13,6 +13,7 @@ import { isDebugSettingsUnlocked, setDebugSettingsUnlocked } from '../utils/debu
 import { useShellPreference, setShellPreference } from '../hooks/useMobileLandscapeShell.js';
 import { DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_RING_WIDTH, CONNECTION_LABEL_RING_WIDTH_MIN, CONNECTION_LABEL_RING_WIDTH_MAX, DEFAULT_CONNECTION_LABEL_MOVE_FADE, DEFAULT_CONNECTION_LABEL_TRUNCATE, DEFAULT_CONNECTION_LABEL_SPRITES, DEFAULT_EDGE_GLOW_MODE, DEFAULT_EDGE_GLOW_INTENSITY, EDGE_GLOW_INTENSITY_MIN, EDGE_GLOW_INTENSITY_MAX, DEFAULT_LIFTED_THING_SHADOW } from '../utils/colorUtils.js';
 import { openExternalUrl } from '../utils/safeUrl.js';
+import { getAppDownloadLinks } from '../utils/appDownloads.js';
 import './ModalChrome.css';
 
 const PRIVACY_POLICY_URL = 'https://redstring.net/privacy';
@@ -88,6 +89,8 @@ const SettingsModal = ({ isVisible, onClose }) => {
   const [activeSection, setActiveSection] = useState('display');
   const [debugUnlocked, setDebugUnlocked] = useState(isDebugSettingsUnlocked);
   const [aboutTaps, setAboutTaps] = useState(0);
+  // The platform doesn't change while the app runs.
+  const [downloadLinks] = useState(getAppDownloadLinks);
   // The header logo's context menu can flip this while the modal is mounted but
   // hidden, so re-read on the way in rather than trusting the mount-time value.
   const sectionsRef = useRef(null);
@@ -1391,6 +1394,29 @@ const SettingsModal = ({ isVisible, onClose }) => {
               />
             </div>
           </div>
+          {/* Redstring on other devices. Not in the phone apps: see
+              appDownloads.js. */}
+          {downloadLinks.length > 0 && (
+            <>
+              <hr className="settings-section-divider" />
+              <div className="settings-section-subtitle">Downloads</div>
+              {downloadLinks.map((link) => (
+                <div className="settings-row" key={link.id}>
+                  <div className="settings-row-label">
+                    {link.label}
+                    <div className="settings-row-description">{link.description}</div>
+                  </div>
+                  <PanelIconButton
+                    label="Open"
+                    labelFontSize={11}
+                    variant="outline"
+                    onClick={() => openExternalUrl(link.url)}
+                    style={{ padding: '5px 12px', flexShrink: 0 }}
+                  />
+                </div>
+              ))}
+            </>
+          )}
         </div>
       )
     }

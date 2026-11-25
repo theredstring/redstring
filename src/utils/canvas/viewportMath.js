@@ -2,6 +2,25 @@
  * Camera maths shared by the canvas (P4.01).
  */
 
+// How much canvas an open overlay panel has to leave behind before framing
+// bothers aiming at the gap rather than at the whole region. Below this a
+// phone-sized window with a near-full-width panel would zoom out to nothing
+// chasing a sliver.
+export const FRAMING_MIN_REGION_PX = 320;
+export const FRAMING_MIN_REGION_FRACTION = 0.45;
+
+/**
+ * Whether the `remaining` px of a `full`-px-wide canvas left beside open
+ * overlay panels is worth framing into. When it isn't, framing aims at the
+ * whole canvas and lets the panel sit over it.
+ * @param {number} remaining
+ * @param {number} full
+ * @returns {boolean}
+ */
+export function overlayGapWorthFraming(remaining, full) {
+  return remaining >= Math.max(FRAMING_MIN_REGION_PX, full * FRAMING_MIN_REGION_FRACTION);
+}
+
 /**
  * Clamp a pan offset so the canvas covers the viewport at `zoom`: each axis
  * between (viewport - canvas * zoom) and 0. The inline copies of this formula

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // utils.js measures text when it loads; jsdom has no 2D context.
 vi.hoisted(() => {
@@ -14,9 +14,10 @@ vi.mock('../../src/services/canvasNavigationService.js', () => ({ navigateToNode
 import useGraphStore from '../../src/store/graphStore.js';
 import { estimateEdgeLabelWidth, resolveEdgeLabelFontSize } from '../../src/services/layoutGeometry.js';
 import {
-  findPrototypeForConcept, ensureConceptPrototype, placeConcept, placeConnections, placeStatement, clustersOf, findPlacement, hasConnection
+  findPrototypeForConcept, ensureConceptPrototype, placeConcept, placeConnections, placeStatement, clustersOf, findPlacement, hasConnection, revealInstances
 } from '../../src/services/semanticPlacement.js';
 import useHistoryStore from '../../src/store/historyStore.js';
+import { navigateToCoordinates } from '../../src/services/canvasNavigationService.js';
 import { performUndo } from '../../src/store/historyActions.js';
 
 // Bringing a semantic-web Thing into a Web: one prototype per subject (found
@@ -388,5 +389,82 @@ describe('semanticPlacement', () => {
       const pos = findPlacement({ graphId, mode: 'cluster', anchorInstanceId: 'i-paris', size: { w: 150, h: 60 }, predicateLabel: 'Contains' });
       expect(boxesOverlap({ ...pos, w: 150, h: 60 }, frame)).toBe(false);
     });
+  });
+});
+
+// Adding from the discovery page then brings the new Thing into the part of the
+// canvas a viewer can see. On a phone the panel covers all but its toggle
+// strip; framing into that sliver flung the view off into empty canvas.
+describe('revealInstances', () => {
+  const CANVAS_OFFSET = -50000;
+  let added = [];
+  const fakeBox = (className, left, top, width, height) => {
+    const el = document.createElement('div');
+    el.className = className;
+    el.getBoundingClientRect = () => ({ left, top, width, height, right: left + width, bottom: top + height, x: left, y: top });
+    document.body.appendChild(el);
+    added.push(el);
+  };
+  // A view of the Web with canvas point (cx, cy) at the middle of a `w` x `h` canvas.
+  const lookAt = (cx, cy, zoom, w, h) => {
+    useGraphStore.setState({
+      graphViews: new Map([[graphId, { panOffset: { x: w / 2 - (cx - CANVAS_OFFSET) * zoom, y: h / 2 - (cy - CANVAS_OFFSET) * zoom }, zoomLevel: zoom }]])
+    });
+  };
+  const centreOf = (id) => {
+    const b = clustersOf(graphId).boxes.get(id);
+    return { x: b.x + b.w / 2, y: b.y + b.h / 2 };
+  };
+
+  beforeEach(() => {
+    setup();
+    vi.mocked(navigateToCoordinates).mockClear();
+  });
+  afterEach(() => {
+    added.forEach((el) => el.remove());
+    added = [];
+  });
+
+  it('on a phone with the panel open, leaves the camera alone when the Thing is in view behind the panel', () => {
+    fakeBox('canvas-area', 0, 50, 390, 700);
+    fakeBox('panel-container left', 0, 50, 340, 750);
+    const c = centreOf('i-paris');
+    lookAt(c.x, c.y, 1, 390, 700);
+    revealInstances(graphId, ['i-paris']);
+    expect(navigateToCoordinates).not.toHaveBeenCalled();
+  });
+
+  it('on a phone with the panel open, centres an off-screen Thing in the canvas at the current zoom', () => {
+    fakeBox('canvas-area', 0, 50, 390, 700);
+    fakeBox('panel-container left', 0, 50, 340, 750);
+    const c = centreOf('i-paris');
+    lookAt(c.x + 5000, c.y + 5000, 1, 390, 700);
+    revealInstances(graphId, ['i-paris']);
+    expect(navigateToCoordinates).toHaveBeenCalledTimes(1);
+    const [x, y, opts] = vi.mocked(navigateToCoordinates).mock.calls[0];
+    expect(opts.zoom).toBe(1);
+    expect(x).toBeCloseTo(c.x, 5);
+    expect(Math.abs(y - c.y)).toBeLessThan(100);
+  });
+
+  it('with room beside the panel, still centres the Thing in the uncovered part', () => {
+    fakeBox('canvas-area', 0, 50, 1000, 700);
+    fakeBox('panel-container left', 0, 50, 250, 750);
+    const c = centreOf('i-paris');
+    lookAt(c.x + 5000, c.y, 1, 1000, 700);
+    revealInstances(graphId, ['i-paris']);
+    const [x, , opts] = vi.mocked(navigateToCoordinates).mock.calls[0];
+    expect(opts.zoom).toBe(1);
+    // The uncovered part (250..1000) is centred at 625, 125px right of the canvas centre.
+    expect(x).toBeCloseTo(c.x - 125, 5);
+  });
+
+  it('never sizes its shift for a zoom the camera will refuse', () => {
+    fakeBox('canvas-area', 0, 50, 390, 700);
+    const c = centreOf('i-paris');
+    lookAt(c.x + 30000, c.y, 0.02, 390, 700);
+    revealInstances(graphId, ['i-paris']);
+    const [, , opts] = vi.mocked(navigateToCoordinates).mock.calls[0];
+    expect(opts.zoom).toBeGreaterThanOrEqual(opts.minZoom);
   });
 });

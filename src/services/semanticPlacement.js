@@ -22,6 +22,7 @@ import { estimateEdgeLabelWidth, resolveEdgeLabelFontSize, getPointSegmentDistSq
 import { getNodeDimensions } from '../utils.js';
 import useImageCache from './imageCache.js';
 import { navigateToCoordinates } from './canvasNavigationService.js';
+import { overlayGapWorthFraming } from '../utils/canvas/viewportMath.js';
 
 // How far past the nearest clean distance a spot beside an anchor may be.
 const STRETCHES = [1, 1.3, 1.7, 2.2];
@@ -803,9 +804,20 @@ const REVEAL_MARGIN = 24;
 // The TypeList bar along the bottom sits over the canvas.
 const BOTTOM_CHROME = 60;
 
+// navigateToCoordinates never zooms out past this; the reveal's own maths
+// must use the same floor, or its centring shift is sized for a zoom the
+// camera then refuses.
+const REVEAL_MIN_ZOOM = 0.05;
+
 /**
  * The part of the canvas a viewer can actually see, in px relative to the
  * canvas element: the canvas less whatever open panel sits over its edge.
+ *
+ * On a phone the panel covers all but its toggle strip. That sliver isn't
+ * worth framing into (fitting a node into ~0px zooms out to nothing and flings
+ * the view off into empty canvas), so then it's the whole canvas, the panel
+ * sitting over it, the same rule the canvas's own framing follows
+ * (getFramingRegionWith).
  */
 function visibleCanvasBox(rect) {
   let left = rect.left; let right = rect.right;
@@ -816,6 +828,7 @@ function visibleCanvasBox(rect) {
     if (side === 'left') left = Math.max(left, r.right);
     else right = Math.min(right, r.left);
   }
+  if (!overlayGapWorthFraming(right - left, rect.width)) { left = rect.left; right = rect.right; }
   return { x0: left - rect.left, x1: right - rect.left, y0: 0, y1: Math.max(0, rect.height - BOTTOM_CHROME) };
 }
 
@@ -853,7 +866,7 @@ export function revealInstances(graphId, instanceIds, { force = false } = {}) {
   const minY = Math.min(...targets.map((b) => b.y)); const maxY = Math.max(...targets.map((b) => b.y + b.h));
   const visW = Math.max(1, vis.x1 - vis.x0 - REVEAL_MARGIN * 4);
   const visH = Math.max(1, vis.y1 - vis.y0 - REVEAL_MARGIN * 4);
-  const fitZoom = Math.min(zoom, visW / Math.max(1, maxX - minX), visH / Math.max(1, maxY - minY));
+  const fitZoom = Math.max(REVEAL_MIN_ZOOM, Math.min(zoom, visW / Math.max(1, maxX - minX), visH / Math.max(1, maxY - minY)));
 
   // navigateToCoordinates centres its target in the whole canvas element;
   // shift the target so the group lands centred in the visible part instead.
@@ -862,6 +875,6 @@ export function revealInstances(graphId, instanceIds, { force = false } = {}) {
   navigateToCoordinates(
     cx - (visCx - rect.width / 2) / fitZoom,
     cy - (visCy - rect.height / 2) / fitZoom,
-    { graphId, zoom: fitZoom, minZoom: 0.05, maxZoom: zoom, courteous: false }
+    { graphId, zoom: fitZoom, minZoom: REVEAL_MIN_ZOOM, maxZoom: zoom, courteous: false }
   );
 }

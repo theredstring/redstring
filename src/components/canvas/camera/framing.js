@@ -6,7 +6,7 @@
  */
 import { lineModeBounds } from '../../../utils/pieMenuLayout.js';
 import { MAX_ZOOM } from '../../../constants';
-import { clampPan } from '../../../utils/canvas/viewportMath.js';
+import { clampPan, overlayGapWorthFraming } from '../../../utils/canvas/viewportMath.js';
 import { createFrameClock } from './frameClock.js';
 import { getNodeDimensions } from '../../../utils.js';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
@@ -21,14 +21,10 @@ import { labelBoundsFor, estimateTextWidth } from '../../../utils/canvas/edgeLab
 import { edgePieDrawnAnchor } from '../edges/edgeGeometry.js';
 import { CAROUSEL_SLOT_FRACTION } from '../../../utils/pieMenuLayout.js';
 
-// How much canvas an open overlay panel has to leave behind before framing
-// bothers aiming at the gap rather than at the whole region — see
-// getFramingRegion. Below this a phone-sized window with a near-full-width
-// panel would zoom out to nothing chasing a sliver.
-const FRAMING_MIN_REGION_PX = 320;
-const FRAMING_MIN_REGION_FRACTION = 0.45;
-// Same idea on the vertical axis, for the bottom control panel. No px floor to go with
-// it: a landscape phone's whole region is shorter than the one above, so a px floor
+// How much canvas an open overlay panel has to leave before framing aims at the
+// gap is overlayGapWorthFraming (viewportMath), shared with semanticPlacement's
+// reveal. This is the same idea on the vertical axis, for the bottom control
+// panel. No px floor to go with it: a landscape phone's whole region is shorter than the one above, so a px floor
 // would switch the reserve off in the layout that needs it most. And unlike the width
 // rule this one clamps rather than gives up — an unusually tall panel still gets what
 // room there is, instead of being ignored outright.
@@ -489,8 +485,7 @@ export function getFramingRegionWith(ctx, { reserveBottomPanel = false } = {}) {
     const openRight = rightPanelExpanded ? rightPanelWidth : 0;
     if (openLeft || openRight) {
       const remaining = width - openLeft - openRight;
-      const floor = Math.max(FRAMING_MIN_REGION_PX, width * FRAMING_MIN_REGION_FRACTION);
-      if (remaining >= floor) {
+      if (overlayGapWorthFraming(remaining, width)) {
         x += openLeft;
         width = remaining;
       }

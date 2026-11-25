@@ -6,6 +6,7 @@ import useReadOnlyUniverse, { selectReadOnlyOpen } from '../../../store/readOnly
 import StorageSetupModal from '../../StorageSetupModal.jsx';
 import GitReconnectModal from '../../modals/GitReconnectModal.jsx';
 import FileAccessHost from './FileAccessHost.jsx';
+import { startSelectUniverse } from './workspaceStartup.js';
 import { activeLoadBlockedByFileAccess } from '../../../services/fileAccessRecovery.js';
 import useGraphStore from '../../../store/graphStore.js';
 import useCanvasUIStore from '../../../store/canvasUIStore.js';
@@ -230,17 +231,15 @@ function UniverseHost() {
           }
 
         } else if (result.status === 'SELECT_UNIVERSE') {
-          console.log('[NodeCanvas] Folder valid but no active universe. Opening Grid.');
-          storeActions.setStorageMode('folder');
-          storeActions.setUniverseConnected(true);
-          storeActions.setUniverseLoaded(true, false);
-          storeActions.setLeftPanelExpanded(true);
-          setShowStorageSetupModal(false); // Close setup modal if it was accidentally opened
-
-          if (typeof window !== 'undefined') {
-            localStorage.setItem(getStorageKey('redstring-welcome-seen'), 'true');
-          }
-          openLeftPanelView('federation');
+          // Every iOS/Android launch lands here (the app's own Universes/
+          // folder, no activeUniverse in its config). The Universes grid is
+          // only forced when the backend has no universe to reopen.
+          const { openedUniverses } = await startSelectUniverse({
+            storeActions,
+            openLeftPanelView,
+            setShowStorageSetupModal,
+          });
+          if (openedUniverses) console.log('[NodeCanvas] Folder valid but no universe to reopen. Opening Grid.');
         }
         // If NEEDS_ONBOARDING, check if user has skipped setup before
         else if (result.status === 'NEEDS_ONBOARDING') {
