@@ -47,6 +47,7 @@ const TAP_SLOP_PX = 10;
  * @param {boolean} [props.fillOnHover=false] - Whether icon should fill when hovered
  * @param {string} [props.hoverFillColor] - Fill color when hovered (defaults to theme.accent.primary)
  * @param {Function} props.onClick - Click handler
+ * @param {string} [props.href] - An outside URL: renders a link opening in a new tab instead of a button
  * @param {string} [props.title] - Tooltip text
  * @param {boolean} [props.disabled=false] - Whether button is disabled
  * @param {number} [props.strokeWidth=2] - Default stroke width for icon
@@ -67,6 +68,10 @@ const PanelIconButton = forwardRef(({
   fillOnHover = false,
   hoverFillColor,
   onClick,
+  // An outside page: drawn the same, but a real link (new tab) the browser
+  // follows itself. Opening from code at the end of a tap (the touch path
+  // below) is not a click to iOS browsers, which may refuse it.
+  href,
   title,
   active = false,
   disabled = false,
@@ -210,22 +215,29 @@ const PanelIconButton = forwardRef(({
 
   const currentStrokeWidth = showActiveState && hoverStrokeWidth ? hoverStrokeWidth : strokeWidth;
 
+  const Element = href ? 'a' : 'button';
+  const elementProps = href
+    ? { href, target: '_blank', rel: 'noopener noreferrer', onClick: (e) => e.stopPropagation() }
+    : {
+        type: 'button',
+        onClick: handleClick,
+        onTouchStart: handleTouchStart,
+        onTouchMove: handleTouchMove,
+        onTouchEnd: handleTouchEnd,
+        disabled
+      };
+
   return (
-    <button
+    <Element
       ref={ref}
       className={`panel-icon-button ${variant} ${active ? 'active' : ''} ${className}`}
       data-nav="action"
-      style={{ ...buttonStyle, ...hoverStyles }}
-      type="button"
-      onClick={handleClick}
-      onTouchStart={handleTouchStart}
-      onTouchMove={handleTouchMove}
-      onTouchEnd={handleTouchEnd}
+      style={{ ...buttonStyle, ...(href && { textDecoration: 'none', boxSizing: 'border-box' }), ...hoverStyles }}
+      {...elementProps}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       onBlur={() => setIsHovered(false)}
       title={title || label}
-      disabled={disabled}
       aria-label={title || label}
       aria-expanded={ariaExpanded}
       aria-haspopup={ariaHasPopup}
@@ -264,7 +276,7 @@ const PanelIconButton = forwardRef(({
           {label}
         </span>
       )}
-    </button>
+    </Element>
   );
 });
 

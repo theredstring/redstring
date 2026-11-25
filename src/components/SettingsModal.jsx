@@ -12,7 +12,6 @@ import PanelIconButton from './shared/PanelIconButton.jsx';
 import { isDebugSettingsUnlocked, setDebugSettingsUnlocked } from '../utils/debugUnlock.js';
 import { useShellPreference, setShellPreference } from '../hooks/useMobileLandscapeShell.js';
 import { DEFAULT_CONNECTION_LABEL_COLOR_MODE, DEFAULT_CONNECTION_LABEL_OUTER_RING, DEFAULT_CONNECTION_LABEL_RING_WIDTH, CONNECTION_LABEL_RING_WIDTH_MIN, CONNECTION_LABEL_RING_WIDTH_MAX, DEFAULT_CONNECTION_LABEL_MOVE_FADE, DEFAULT_CONNECTION_LABEL_TRUNCATE, DEFAULT_CONNECTION_LABEL_SPRITES, DEFAULT_EDGE_GLOW_MODE, DEFAULT_EDGE_GLOW_INTENSITY, EDGE_GLOW_INTENSITY_MIN, EDGE_GLOW_INTENSITY_MAX, DEFAULT_LIFTED_THING_SHADOW } from '../utils/colorUtils.js';
-import { openExternalUrl } from '../utils/safeUrl.js';
 import { getAppDownloadLinks } from '../utils/appDownloads.js';
 import './ModalChrome.css';
 
@@ -1389,7 +1388,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
                 label="Open"
                 labelFontSize={11}
                 variant="outline"
-                onClick={() => openExternalUrl(PRIVACY_POLICY_URL)}
+                href={PRIVACY_POLICY_URL}
                 style={{ padding: '5px 12px', flexShrink: 0 }}
               />
             </div>
@@ -1410,7 +1409,7 @@ const SettingsModal = ({ isVisible, onClose }) => {
                     label="Open"
                     labelFontSize={11}
                     variant="outline"
-                    onClick={() => openExternalUrl(link.url)}
+                    href={link.url}
                     style={{ padding: '5px 12px', flexShrink: 0 }}
                   />
                 </div>

@@ -26,7 +26,6 @@ import { openUniverseFile } from '../services/openUniverseFile.js';
 import { saveLinkedAsLocalFile, publishLinkedToRepo } from '../services/externalLinkDestinations.js';
 import ExternalLinkLoadModal from './modals/ExternalLinkLoadModal.jsx';
 import { canOfferAppDownloads, DESKTOP_DOWNLOAD_URL, APP_STORE_URL, GOOGLE_PLAY_URL } from '../utils/appDownloads.js';
-import { openExternalUrl } from '../utils/safeUrl.js';
 import {
   fillGitSlot, addLocalFileSlot, resolveLocalFileHandle, openRepoUniverse,
   GIT_ONBOARDING_TASKS, OPEN_REPO_TASKS
@@ -899,7 +898,7 @@ const StorageSetupModal = ({
       labelFontSize={14}
       label={label}
       variant="outline"
-      onClick={() => openExternalUrl(url)}
+      href={url}
       style={getAppButtonStyle}
     />
   );
