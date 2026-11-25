@@ -193,7 +193,14 @@ const StorageSetupModal = ({
   // them. These numbers feed the height math below, so keep them in JS rather
   // than inlining different values in the style object.
   const contentPadX = isCompactLayout ? 20 : 32;
-  const contentPadTop = isCompactLayout ? 44 : 52;
+  // The browser's hub has no title above its one heading line, so that line
+  // sits level with the back button instead of under it: it is centred and
+  // short, and the long one ("Add another place…") only shows once the back
+  // button has gone.
+  const headingBesideBack = step === 'slots' && offerGetApp;
+  const contentPadTop = headingBesideBack
+    ? (isCompactLayout ? 19 : 21)
+    : (isCompactLayout ? 44 : 52);
   const contentPadBottom = isCompactLayout ? 22 : 28;
 
   // The modal is sized to the step it is showing rather than pinned to one
@@ -712,7 +719,6 @@ const StorageSetupModal = ({
   const renderCreateCard = () => hubCard({
     icon: <Plus size={22} />,
     title: 'Create a New Universe',
-    description: !showLocalSlot ? 'In a GitHub repository' : !showGitOption ? 'On this device' : 'On this device, on GitHub, or both',
     children: (
       <>
         {/* Universe name */}
@@ -844,7 +850,6 @@ const StorageSetupModal = ({
   const renderOpenExistingCard = () => hubCard({
     icon: <FolderOpen size={22} />,
     title: 'Open an Existing Universe',
-    description: 'From a file, a repository or a link',
     children: hubActions(
       <>
         <PanelIconButton icon={FileText} size={14} label={openBusy ? 'Opening…' : 'File'} variant="outline" onClick={openExistingFile} disabled={openBusy} style={hubButtonStyle} />
@@ -951,17 +956,19 @@ const StorageSetupModal = ({
     <>
       <style>{'@keyframes rs-onboarding-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }'}</style>
       {offerGetApp && !anySlotFilled && backButton(() => setStep('get-app'))}
-      {/* Header */}
+      {/* Header. In a browser the welcome is on Get the App, the page before. */}
       <div style={{ textAlign: 'center', marginBottom: isCompactLayout ? '18px' : '22px', flexShrink: 0 }}>
-        <h1 style={{
-          margin: '0 0 6px 0',
-          color: theme.canvas.brandText,
-          fontSize: isCompactLayout ? '1.25rem' : '1.45rem',
-          fontWeight: '600',
-          fontFamily: "'EmOne', sans-serif"
-        }}>
-          Welcome to Redstring
-        </h1>
+        {!offerGetApp && (
+          <h1 style={{
+            margin: '0 0 6px 0',
+            color: theme.canvas.brandText,
+            fontSize: isCompactLayout ? '1.25rem' : '1.45rem',
+            fontWeight: '600',
+            fontFamily: "'EmOne', sans-serif"
+          }}>
+            Welcome to Redstring
+          </h1>
+        )}
         <h2 style={{
           margin: 0,
           color: theme.canvas.textPrimary,
@@ -994,14 +1001,16 @@ const StorageSetupModal = ({
                 <span style={{ fontSize: '0.72rem', fontWeight: 600, color: theme.canvas.textPrimary, fontFamily: "'EmOne', sans-serif" }}>
                   Workspace Folder
                 </span>
-                <span style={{
-                  fontSize: '0.65rem',
-                  color: workspaceFolder ? theme.canvas.textPrimary : theme.canvas.textSecondary,
-                  ...(workspaceFolder && { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }),
-                  fontFamily: "'EmOne', sans-serif"
-                }}>
-                  {workspaceFolder || 'Where local files are kept'}
-                </span>
+                {workspaceFolder && (
+                  <span style={{
+                    fontSize: '0.65rem',
+                    color: theme.canvas.textPrimary,
+                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    fontFamily: "'EmOne', sans-serif"
+                  }}>
+                    {workspaceFolder}
+                  </span>
+                )}
               </div>
             </div>
             <div style={{ display: 'flex', gap: 4, flexShrink: 0, alignItems: 'center' }}>
