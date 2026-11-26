@@ -1,4 +1,4 @@
-/* The read-only pill: DownloadAppPill's pop/shrink, as two rows: what this is and
+/* The read-only pill: a pop/shrink pill, as two rows: what this is and
    its X, then the buttons. Its bottom edge eases as the control panel under it comes and goes. */
 
 .read-only-pill-wrapper {

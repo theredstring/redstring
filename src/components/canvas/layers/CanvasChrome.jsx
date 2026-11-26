@@ -1,19 +1,16 @@
 /**
  * Canvas chrome over the graph (moved verbatim from NodeCanvas): the off-screen
- * edge glows, Back to Civilization, the desktop-app pill, the zoom bar and the
- * panel resizers.
+ * edge glows, Back to Civilization, the zoom bar and the panel resizers.
  */
 import { Profiler, useMemo } from 'react';
 import { onRenderProbe } from '../../../utils/perf/renderProbe.js';
 import EdgeGlowIndicator from '../../EdgeGlowIndicator.jsx';
 import BackToCivilization from '../../../BackToCivilization.jsx';
-import DownloadAppPill from '../../../DownloadAppPill.jsx';
 import PanelResizers from '../PanelResizers.jsx';
 import ZoomBar from './ZoomBar.jsx';
 import FormatsHost from '../formats/FormatsHost.jsx';
 import { useFormulaObjects } from '../formats/formula/useFormulaObjects.js';
 import useGraphStore from '../../../store/graphStore.js';
-import useReadOnlyUniverse, { selectReadOnlyOpen } from '../../../store/readOnlyUniverse.js';
 
 export default function CanvasChrome({ ctx }) {
   const {
@@ -46,9 +43,6 @@ export default function CanvasChrome({ ctx }) {
     nodeControlPanelShouldShow || nodeControlPanelVisible ||
     connectionControlPanelShouldShow || connectionControlPanelVisible ||
     abstractionControlPanelShouldShow || abstractionControlPanelVisible;
-
-  // The read-only pill holds the same spot, and offers Open in App itself.
-  const readOnlyOpen = useReadOnlyUniverse(selectReadOnlyOpen);
 
   return (
     <Profiler id="CanvasChrome" onRender={onRenderProbe}>
@@ -88,15 +82,6 @@ export default function CanvasChrome({ ctx }) {
           in Back to Civilization's spot, so it stands down while that shows. */}
       <FormatsHost
         suppressed={showStorageSetupModal || (shouldShowBackToCivilization && backToCivilizationDelayComplete)}
-      />
-
-      {/* One-time desktop-app nudge (web only). Held back while first-run
-          setup is up — nobody needs a download offer before they have a
-          universe — and while a bottom control panel is showing, since both
-          center on the same strip of canvas above the TypeList. The pill is
-          in no hurry: it waits and pops once the way is clear. */}
-      <DownloadAppPill
-        suppressed={showStorageSetupModal || bottomPanelUp || readOnlyOpen}
       />
 
       {/* Zoom bar (Settings › Display). At the bottom it steps aside while a

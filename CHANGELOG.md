@@ -13,6 +13,9 @@ Versions before 0.1.0-alpha were never released. They are numbered after the fac
 ### Changed
 - **Onboarding's setup screen is shorter.** The lines under its cards are gone, and in the browser its heading sits beside the back button.
 
+### Removed
+- **The Download App pill** at the bottom of the canvas. Onboarding offers the apps now.
+
 ### Fixed
 - **The iPhone, iPad and Android apps always opened on the Universes tab**, even with a universe to reopen, and showed an empty canvas before it arrived.
 - **Selecting a Thing or a connection panned slowly on Android.** The camera's move now takes its intended time on slower devices.

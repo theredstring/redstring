@@ -163,9 +163,6 @@ function installFixtureSandbox(name) {
     // plain key and the `?test=true` scoped key (storageUtils.getStorageKey).
     'redstring-welcome-seen': 'true',
     'test_redstring-welcome-seen': 'true',
-    // The "Download App" pill floats over the bottom of the canvas after a
-    // delay and would intercept clicks there.
-    'redstring_desktop_download_dismissed': 'true',
     // A returning user with no What's New record counts as just updated, and
     // its modal would cover the canvas. Seen up to any version.
     'redstring-whats-new-seen': '9999.0.0',

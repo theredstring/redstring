@@ -492,8 +492,6 @@ test('F50 the pill sits over the TypeList and rides on top of a control panel', 
   const resting = await pill.boundingBox();
   expect(resting.y, 'low on the screen, not under the header').toBeGreaterThan(600);
   await page.screenshot({ path: test.info().outputPath('pill-resting.png') });
-  // No second pill in the same spot.
-  await expect(page.locator('.download-app-pill')).toHaveCount(0);
 
   const select = (names) => page.evaluate(async (wanted) => {
     const { default: useGraphStore } = await import('/src/store/graphStore.js');
